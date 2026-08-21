@@ -15,6 +15,13 @@ class Settings(BaseModel):
     document_inbox_id: str | None = os.getenv("DOCUMENT_INBOX_ID")
     approval_queue_id: str | None = os.getenv("APPROVAL_QUEUE_ID")
     run_log_id: str | None = os.getenv("RUN_LOG_ID")
+    
+    # SMTP Settings
+    smtp_host: str = os.getenv("SMTP_HOST", "smtp.gmail.com")
+    smtp_port: int = int(os.getenv("SMTP_PORT", "587"))
+    smtp_username: str | None = os.getenv("SMTP_USERNAME")
+    smtp_password: str | None = os.getenv("SMTP_PASSWORD")
+    smtp_from_email: str | None = os.getenv("SMTP_FROM_EMAIL", smtp_username)
     max_upload_size_mb: int = Field(
         default_factory=lambda: int(os.getenv("MAX_UPLOAD_SIZE_MB", "10")),
         ge=1,

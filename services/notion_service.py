@@ -251,6 +251,10 @@ class NotionService:
             ),
         }
 
+    async def get_document(self, document_id: str) -> dict[str, Any]:
+        """Fetch a specific document from the Document Inbox by ID."""
+        return await self._request("GET", f"pages/{document_id}")
+
     async def create_processed_document(self, filename: str, file_hash: str) -> dict[str, Any]:
         """Create the one Document Inbox record used for future hash lookups."""
         document_source = await self._get_data_source(self.settings.document_inbox_id or "")

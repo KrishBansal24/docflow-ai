@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from models.approval import ApprovalDecision
 from models.workflow import DecisionStatus
 from services.notion_service import NotionService, NotionServiceError
+from services.email_service import EmailService, EmailServiceError
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,7 @@ class ApprovalServiceError(Exception):
 class ApprovalService:
     def __init__(self) -> None:
         self.notion_service = NotionService()
+        self.email_service = EmailService()
 
     async def queue_document_for_review(self, document_id: str, document_name: str, reason: str) -> dict[str, str]:
         """Create a new approval entry if one doesn't exist."""
@@ -120,6 +122,37 @@ class ApprovalService:
             logger.info("[APPROVAL] Document decision submitted. Updating inbox decision status to %s.", DecisionStatus.DECISION_TAKEN.value)
             await self.notion_service.update_decision_status_only(document_id, DecisionStatus.DECISION_TAKEN.value)
                 
+            # 4. Trigger External Email Action (Phase 7)
+            try:
+                document = await self.notion_service.get_document(document_id)
+                doc_props = document.get("properties", {})
+                
+                title_prop = doc_props.get("Filename", {}).get("title", [])
+                doc_title = "".join(t.get("plain_text", "") for t in title_prop) if title_prop else "Unknown Document"
+                
+                recipient_prop = doc_props.get("Suggested Recipient", {}).get("rich_text", [])
+                suggested_recipient = "".join(t.get("plain_text", "") for t in recipient_prop) if recipient_prop else None
+                
+                recipient = suggested_recipient or self.email_service.settings.smtp_from_email or "admin@example.com"
+                
+                if decision == ApprovalDecision.APPROVED.value:
+                    self.email_service.send_approval_notification(recipient, doc_title, notes)
+                    final_decision_status = DecisionStatus.ACTION_COMPLETED.value
+                elif decision == ApprovalDecision.NEEDS_CORRECTION.value:
+                    self.email_service.send_correction_notification(recipient, doc_title, notes)
+                    final_decision_status = DecisionStatus.ACTION_COMPLETED.value
+                else:
+                    # For REJECTED, maybe we just don't send an email, or we do, but let's stick to the spec.
+                    final_decision_status = DecisionStatus.DECISION_TAKEN.value
+                
+                if final_decision_status == DecisionStatus.ACTION_COMPLETED.value:
+                    # Update decision status to ACTION_COMPLETED now that email is sent
+                    await self.notion_service.update_decision_status_only(document_id, final_decision_status)
+                    
+            except Exception as e:
+                logger.error("[APPROVAL] Failed to send email for %s: %s", approval_id, e)
+                # We won't block the API response for an email failure, but in production we'd queue it.
+
             return {"success": True, "approval_id": approval_id, "decision": decision}
             
         except NotionServiceError as exc:

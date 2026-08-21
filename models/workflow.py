@@ -21,3 +21,4 @@ class DecisionStatus(str, Enum):
 
     PENDING_DECISION = "Pending Decision"
     DECISION_TAKEN = "Decision Taken"
+    ACTION_COMPLETED = "Action Completed"
