@@ -54,6 +54,7 @@ class Phase3Tests(unittest.TestCase):
             "needs_human_review": False,
             "text_extraction_method": "embedded",
             "ocr_used": False,
+            "workflow_status": "AI Analyzed",
             "message": "PDF processed successfully",
         }
 

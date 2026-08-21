@@ -70,6 +70,7 @@ class Phase4Tests(unittest.TestCase):
         self.assertFalse(data["is_duplicate"])
         self.assertEqual(data["document_id"], "fake-page-id")
         self.assertFalse(data["needs_human_review"])
+        self.assertEqual(data["workflow_status"], "AI Analyzed")
         self.assertEqual(data["analysis"]["document_type"], "Supplier Invoice")
         self.assertEqual(data["analysis"]["amount"], 123.0)
         
@@ -96,6 +97,7 @@ class Phase4Tests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertTrue(data["needs_human_review"])
+        self.assertEqual(data["workflow_status"], "Needs Human Review")
         
         self.mock_notion.update_document_analysis.assert_called_once_with(
             "fake-page-id", fake_analysis, "Needs Human Review"
@@ -114,6 +116,7 @@ class Phase4Tests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertTrue(data["needs_human_review"])
+        self.assertEqual(data["workflow_status"], "AI Analysis Failed")
         self.assertIsNone(data.get("analysis"))
         
         self.mock_notion.update_document_analysis.assert_called_once_with(

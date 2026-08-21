@@ -79,15 +79,21 @@ The backend can verify access to the connected Notion databases, create a manual
 
 The planned Notion workspace will let people view processed documents, understand AI recommendations, review pending actions, approve or reject decisions, and inspect workflow history.
 
-### 7. Human approval — planned
+### 7. Workflow status and human review — implemented (Phase 5)
+
+Once analyzed, the document is moved into a clear workflow state in the Notion database. A `DocumentStatus` enum centralizes all valid states:
+- `Processing`: Initial state upon upload.
+- `AI Analyzed`: High-confidence extraction; ready for the next action.
+- `Needs Human Review`: The AI confidence was too low, or the OCR text was garbled. A human must verify the details.
+- `AI Analysis Failed`: The AI service was unavailable or returned an error.
+
+The API response accurately reflects this state via the `workflow_status` field. Notion is safely updated even if some schema properties are missing.
+
+### 8. Approval routing — planned
 
 Important, risky, uncertain, or low-confidence decisions should not be automated blindly. These will be routed to the Notion Approval Queue for a human decision.
 
-### 8. External action — planned
-
-After approval, the backend will eventually perform real actions outside Notion, such as sending a notification email to a finance manager.
-
-### 9. Run log — planned beyond the Phase 1 connection
+### 9. External action — planned beyond the Phase 1 connection
 
 The Run Log database connection is currently verified by the Notion test endpoint. Automated event logging is not implemented yet. The final audit trail is intended to record events such as document received, processed, analyzed, approval requested, approved, action sent, and action failed.
 
@@ -397,7 +403,7 @@ Also test a `.txt` file renamed to `.pdf`, an empty `.pdf`, a corrupted PDF, and
 - ✅ **Phase 2 — PDF Upload and Text Extraction:** Completed
 - ✅ **Phase 3 — Duplicate Detection:** Completed
 - ✅ **Phase 4 — AI Document Analysis:** Completed
-- ⏳ **Phase 5 — Notion Document Workflow:** Planned
+- ✅ **Phase 5 — Notion Document Workflow:** Completed
 - ⏳ **Phase 6 — Human Approval Queue:** Planned
 - ⏳ **Phase 7 — Automatic Approval Detection:** Planned
 - ⏳ **Phase 8 — External Email Action:** Planned

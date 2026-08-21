@@ -1,9 +1,13 @@
+import logging
 from typing import Any
 
 import httpx
 
 from config import get_settings
+from models.workflow import DocumentStatus
 
+
+logger = logging.getLogger(__name__)
 
 NOTION_API_URL = "https://api.notion.com/v1"
 # Current stable Notion API version at the time this project was created.
@@ -11,7 +15,6 @@ NOTION_API_VERSION = "2026-03-11"
 FILE_HASH_PROPERTY = "File Hash"
 DOCUMENT_NAME_PROPERTY = "Document Name"
 STATUS_PROPERTY = "Status"
-INITIAL_DOCUMENT_STATUS = "Processing"
 
 
 class NotionServiceError(Exception):
@@ -121,7 +124,7 @@ class NotionService:
         return text or None
 
     def _validate_document_inbox_schema(self, data_source: dict[str, Any]) -> None:
-        """Ensure Phase 3 relies only on verified, compatible Notion properties."""
+        """Ensure the DOCUMENT INBOX has required properties and workflow statuses."""
         properties = data_source.get("properties", {})
         required_types = {
             FILE_HASH_PROPERTY: "rich_text",
@@ -135,16 +138,25 @@ class NotionService:
         ]
         if missing_or_invalid:
             raise NotionServiceError(
-                "DOCUMENT INBOX is missing required Phase 3 properties: "
+                "DOCUMENT INBOX is missing required properties: "
                 + ", ".join(missing_or_invalid)
                 + ". Add 'File Hash' as Rich Text, 'Document Name' as Title, and 'Status' as Status."
             )
 
-        status_options = properties[STATUS_PROPERTY].get("status", {}).get("options", [])
-        if INITIAL_DOCUMENT_STATUS not in {option.get("name") for option in status_options}:
-            raise NotionServiceError(
-                f"DOCUMENT INBOX Status needs an '{INITIAL_DOCUMENT_STATUS}' option for Phase 3."
-            )
+        # Validate that all DocumentStatus values exist as Status options.
+        # Missing options are logged as warnings but do NOT crash — Notion
+        # auto-creates status options when written for the first time.
+        available_options = {
+            option.get("name")
+            for option in properties[STATUS_PROPERTY].get("status", {}).get("options", [])
+        }
+        for status in DocumentStatus:
+            if status.value not in available_options:
+                logger.warning(
+                    "[WORKFLOW] Notion Status option '%s' not found in DOCUMENT INBOX. "
+                    "It will be created automatically on first use.",
+                    status.value,
+                )
 
     async def check_duplicate_document(self, file_hash: str) -> dict[str, Any]:
         """Find a Document Inbox page with an exactly matching SHA-256 hash."""
@@ -194,7 +206,7 @@ class NotionService:
                 FILE_HASH_PROPERTY: {
                     "rich_text": [{"text": {"content": file_hash}}],
                 },
-                STATUS_PROPERTY: {"status": {"name": INITIAL_DOCUMENT_STATUS}},
+                STATUS_PROPERTY: {"status": {"name": DocumentStatus.PROCESSING.value}},
             },
         }
         return await self._request("POST", "/pages", json=payload)

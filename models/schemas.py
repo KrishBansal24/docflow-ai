@@ -49,6 +49,7 @@ class UniqueDocumentResponse(BaseModel):
     needs_human_review: bool
     text_extraction_method: str  # 'embedded', 'ocr', or 'none'
     ocr_used: bool
+    workflow_status: str
     analysis: DocumentAnalysisResult | None = None
 
 

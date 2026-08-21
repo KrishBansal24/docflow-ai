@@ -27,8 +27,8 @@ ALLOWED_PDF_CONTENT_TYPES = {
 
 app = FastAPI(
     title="DocFlow AI",
-    version="0.3.0",
-    description="Phase 3: PDF processing with Notion-backed duplicate detection.",
+    version="0.5.0",
+    description="Phase 5: PDF processing with AI analysis and Notion document workflow.",
 )
 
 
@@ -149,6 +149,7 @@ async def upload_document(
             needs_human_review=document_result["needs_human_review"],
             text_extraction_method=document_result["text_extraction_method"],
             ocr_used=document_result["ocr_used"],
+            workflow_status=document_result["workflow_status"],
             analysis=document_result.get("analysis"),
         )
     except PDFProcessingError as exc:

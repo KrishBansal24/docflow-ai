@@ -2,6 +2,7 @@ import asyncio
 import logging
 from typing import Any
 
+from models.workflow import DocumentStatus
 from services.notion_service import NotionService
 from services.pdf_service import process_pdf
 from services.ai_service import AIService, AIServiceError
@@ -52,6 +53,7 @@ class DocumentService:
             processed_document = process_pdf(file_bytes, filename, file_hash)
 
             document_id = (await self.notion_service.create_processed_document(filename, file_hash))["id"]
+            logger.info("[WORKFLOW] Document created in Notion: %s (id=%s)", filename, document_id)
 
             extracted_text = processed_document["extracted_text"]
             needs_human_review = processed_document["needs_human_review"]
@@ -92,24 +94,21 @@ class DocumentService:
                             logger.warning("OCR returned empty text for %s.", filename)
                     except OCRServiceError as exc:
                         logger.warning("OCR fallback failed for %s: %s", filename, exc)
-                        # needs_human_review stays True — that is already the correct state.
 
             processed_document["text_extraction_method"] = text_extraction_method
             processed_document["ocr_used"] = ocr_used
             processed_document["needs_human_review"] = needs_human_review
 
             logger.info(
-                "Extraction complete for %s | method=%s | ocr_used=%s | needs_review=%s",
-                filename,
-                text_extraction_method,
-                ocr_used,
-                needs_human_review,
+                "[WORKFLOW] Extraction complete for %s | method=%s | ocr_used=%s | needs_review=%s",
+                filename, text_extraction_method, ocr_used, needs_human_review,
             )
 
             # ----------------------------------------------------------------
             # AI analysis — only for documents with usable text.
             # ----------------------------------------------------------------
             analysis = None
+            workflow_status: DocumentStatus
 
             if not needs_human_review:
                 try:
@@ -117,24 +116,46 @@ class DocumentService:
 
                     if analysis.requires_human_approval:
                         needs_human_review = True
-                        status_name = "Needs Human Review"
+                        workflow_status = DocumentStatus.NEEDS_HUMAN_REVIEW
+                        logger.info(
+                            "[WORKFLOW] AI confidence below threshold for %s — human review required (confidence=%.2f)",
+                            filename, analysis.confidence,
+                        )
                     else:
-                        status_name = "AI Analyzed"
+                        workflow_status = DocumentStatus.AI_ANALYZED
+                        logger.info(
+                            "[WORKFLOW] AI analysis completed for %s (confidence=%.2f)",
+                            filename, analysis.confidence,
+                        )
 
-                    await self.notion_service.update_document_analysis(document_id, analysis, status_name)
+                    await self.notion_service.update_document_analysis(
+                        document_id, analysis, workflow_status.value
+                    )
 
                 except AIServiceError as exc:
-                    logger.warning("AI analysis failed for %s: %s", filename, exc)
+                    logger.warning("[WORKFLOW] AI analysis failed for %s: %s", filename, exc)
                     needs_human_review = True
-                    await self.notion_service.update_document_analysis(document_id, None, "AI Analysis Failed")
+                    workflow_status = DocumentStatus.AI_ANALYSIS_FAILED
+                    await self.notion_service.update_document_analysis(
+                        document_id, None, workflow_status.value
+                    )
             else:
-                await self.notion_service.update_document_analysis(document_id, None, "Needs Human Review")
+                workflow_status = DocumentStatus.NEEDS_HUMAN_REVIEW
+                logger.info("[WORKFLOW] No usable text for %s — human review required", filename)
+                await self.notion_service.update_document_analysis(
+                    document_id, None, workflow_status.value
+                )
 
             processed_document["needs_human_review"] = needs_human_review
+
+            logger.info(
+                "[WORKFLOW] Final status for %s: %s", filename, workflow_status.value
+            )
 
             return {
                 "is_duplicate": False,
                 "document_id": document_id,
                 "analysis": analysis,
+                "workflow_status": workflow_status.value,
                 **processed_document,
             }
