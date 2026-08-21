@@ -148,11 +148,14 @@ class ApprovalService:
                 if final_decision_status == DecisionStatus.ACTION_COMPLETED.value:
                     # Update decision status to ACTION_COMPLETED now that email is sent
                     await self.notion_service.update_decision_status_only(document_id, final_decision_status)
+                    await self.notion_service.create_run_log_entry("Action Completed", "Success", f"Sent email to {recipient}", document_id)
                     
             except Exception as e:
                 logger.error("[APPROVAL] Failed to send email for %s: %s", approval_id, e)
+                await self.notion_service.create_run_log_entry("Action Completed", "Failed", f"Failed to send email: {e}", document_id)
                 # We won't block the API response for an email failure, but in production we'd queue it.
 
+            await self.notion_service.create_run_log_entry("Human Decision", "Success", f"Reviewer decided: {decision}", document_id)
             return {"success": True, "approval_id": approval_id, "decision": decision}
             
         except NotionServiceError as exc:
