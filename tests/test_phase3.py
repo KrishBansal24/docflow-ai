@@ -7,7 +7,8 @@ import pymupdf
 from fastapi.testclient import TestClient
 
 import main
-from services.notion_service import NotionService
+from services.notion import DocumentNotionService
+from unittest.mock import MagicMock
 
 
 DOCUMENT_INBOX_SCHEMA = {
@@ -32,8 +33,9 @@ class FakeDocumentService:
 
 class Phase3Tests(unittest.TestCase):
     def setUp(self) -> None:
-        self.original_document_service = main.DocumentService
-        main.DocumentService = FakeDocumentService
+        import api.documents
+        self.original_document_service = api.documents.DocumentService
+        api.documents.DocumentService = FakeDocumentService
         self.client = TestClient(main.app)
         document = pymupdf.open()
         document.new_page().insert_text((72, 72), "Invoice total: 123")
@@ -41,7 +43,8 @@ class Phase3Tests(unittest.TestCase):
         document.close()
 
     def tearDown(self) -> None:
-        main.DocumentService = self.original_document_service
+        import api.documents
+        api.documents.DocumentService = self.original_document_service
 
     def test_unique_document_response(self) -> None:
         FakeDocumentService.result = {
@@ -96,15 +99,17 @@ class Phase3Tests(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
 
     def test_duplicate_query_uses_exact_file_hash_filter(self) -> None:
-        service = object.__new__(NotionService)
-        service.settings = SimpleNamespace(document_inbox_id="database-id")
-        service._get_data_source = AsyncMock(return_value=DOCUMENT_INBOX_SCHEMA)
-        service._request = AsyncMock(return_value={"results": []})
+        service = DocumentNotionService()
+        service.client = MagicMock()
+        service.client.settings = SimpleNamespace(document_inbox_id="database-id")
+        service.client._get_data_source = AsyncMock(return_value=DOCUMENT_INBOX_SCHEMA)
+        service.client._request = AsyncMock(return_value={"results": []})
 
         result = asyncio.run(service.check_duplicate_document("a" * 64))
 
-        self.assertEqual(result, {"is_duplicate": False})
-        request_json = service._request.call_args.kwargs["json"]
+        self.assertFalse(result["is_duplicate"])
+        service.client._request.assert_called_once()
+        request_json = service.client._request.call_args.kwargs["json"]
         self.assertEqual(request_json["filter"]["property"], "File Hash")
         self.assertEqual(request_json["filter"]["rich_text"]["equals"], "a" * 64)
 

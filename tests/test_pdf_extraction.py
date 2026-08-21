@@ -23,7 +23,7 @@ from fastapi.testclient import TestClient
 
 import main
 from services.ai_service import AIServiceError
-from services.notion_service import NotionService
+from services.notion import DocumentNotionService, RunLogNotionService
 from services.ocr_service import OCRServiceError
 from services.pdf_service import is_meaningful_text, process_pdf
 
@@ -154,14 +154,28 @@ class DocumentServicePipelineTests(unittest.TestCase):
         self.client = TestClient(main.app)
 
         # Mock Notion (always returns "not a duplicate" and a fake page)
-        self.mock_notion = MagicMock(spec=NotionService)
+        self.mock_notion = MagicMock(spec=DocumentNotionService)
         self.mock_notion.check_duplicate_document = AsyncMock(return_value={"is_duplicate": False})
         self.mock_notion.create_processed_document = AsyncMock(return_value={"id": "fake-page-id"})
         self.mock_notion.update_document_analysis = AsyncMock()
 
         self.notion_patcher = patch(
-            "services.document_service.NotionService", return_value=self.mock_notion
+            "services.document_service.DocumentNotionService", return_value=self.mock_notion
         )
+        
+        self.mock_run_log = MagicMock(spec=RunLogNotionService)
+        self.mock_run_log.create_run_log_entry = AsyncMock()
+        self.run_log_patcher = patch(
+            "services.document_service.RunLogNotionService", return_value=self.mock_run_log
+        )
+        self.run_log_patcher.start()
+        
+        self.mock_approval_notion = MagicMock()
+        self.mock_approval_notion.check_existing_approval = AsyncMock(return_value=None)
+        self.mock_approval_notion.create_approval_entry = AsyncMock(return_value={"id": "fake-approval-id"})
+        self.mock_approval_notion.update_approval_decision = AsyncMock(return_value={"id": "fake-approval-id"})
+        self.approval_patcher = patch("services.approval_service.ApprovalNotionService", return_value=self.mock_approval_notion)
+        self.approval_patcher.start()
         self.notion_patcher.start()
 
         # Mock OCR (default: success with meaningful text)
@@ -176,6 +190,8 @@ class DocumentServicePipelineTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.notion_patcher.stop()
+        self.run_log_patcher.stop()
+        self.approval_patcher.stop()
         self.ocr_patcher.stop()
 
     # TEST 1: PDF with good embedded text — OCR must not be called

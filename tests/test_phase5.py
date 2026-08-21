@@ -10,7 +10,8 @@ from models.schemas import DocumentAnalysisResult
 from models.workflow import ProcessingStatus, DecisionStatus
 from services.ai_service import AIServiceError
 from services.ocr_service import OCRServiceError
-from services.notion_service import NotionService, NotionServiceError
+from services.notion import DocumentNotionService, RunLogNotionService
+from services.notion.client import NotionServiceError
 
 
 def _make_text_pdf(text: str) -> bytes:
@@ -40,7 +41,7 @@ class Phase5Tests(unittest.TestCase):
             "Total Amount: USD 123.00 for ABC Corp Ltd\nOrder: 402-1234567"
         )
 
-        self.mock_notion = MagicMock(spec=NotionService)
+        self.mock_notion = MagicMock(spec=DocumentNotionService)
         self.mock_notion.check_duplicate_document = AsyncMock(
             return_value={"is_duplicate": False}
         )
@@ -50,12 +51,25 @@ class Phase5Tests(unittest.TestCase):
         self.mock_notion.update_document_analysis = AsyncMock(
             return_value={"id": "fake-page-id"}
         )
-
         self.notion_patcher = patch(
-            "services.document_service.NotionService",
+            "services.document_service.DocumentNotionService",
             return_value=self.mock_notion,
         )
         self.notion_patcher.start()
+        
+        self.mock_run_log = MagicMock(spec=RunLogNotionService)
+        self.mock_run_log.create_run_log_entry = AsyncMock()
+        self.run_log_patcher = patch(
+            "services.document_service.RunLogNotionService", return_value=self.mock_run_log
+        )
+        self.run_log_patcher.start()
+        
+        self.mock_approval_notion = MagicMock()
+        self.mock_approval_notion.check_existing_approval = AsyncMock(return_value=None)
+        self.mock_approval_notion.create_approval_entry = AsyncMock(return_value={"id": "fake-approval-id"})
+        self.mock_approval_notion.update_approval_decision = AsyncMock(return_value={"id": "fake-approval-id"})
+        self.approval_patcher = patch("services.approval_service.ApprovalNotionService", return_value=self.mock_approval_notion)
+        self.approval_patcher.start()
 
         self.mock_ocr = MagicMock()
         self.mock_ocr.extract_text = AsyncMock(
@@ -69,6 +83,8 @@ class Phase5Tests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.notion_patcher.stop()
+        self.run_log_patcher.stop()
+        self.approval_patcher.stop()
         self.ocr_patcher.stop()
 
     # ------------------------------------------------------------------

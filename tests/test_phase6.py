@@ -11,7 +11,7 @@ class TestPhase6(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)
 
-    @patch("main.approval_service")
+    @patch("api.approvals.approval_service")
     def test_get_pending_approvals(self, mock_approval_service):
         mock_approval_service.get_pending_approvals = AsyncMock(return_value=[
             {
@@ -32,7 +32,7 @@ class TestPhase6(unittest.TestCase):
         self.assertEqual(data["approvals"][0]["approval_id"], "app-123")
         self.assertEqual(data["approvals"][0]["document_id"], "doc-123")
 
-    @patch("main.approval_service")
+    @patch("api.approvals.approval_service")
     def test_submit_approval_decision(self, mock_approval_service):
         mock_approval_service.submit_decision = AsyncMock(return_value={
             "success": True,

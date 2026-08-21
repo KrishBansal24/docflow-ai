@@ -6,7 +6,7 @@ from config import get_settings
 
 from models.workflow import ProcessingStatus, DecisionStatus
 from models.approval import ApprovalDecision
-from services.notion_service import NotionService
+from services.notion import DocumentNotionService, RunLogNotionService
 from services.pdf_service import process_pdf
 from services.ai_service import AIService, AIServiceError
 from services.ocr_service import OCRService, OCRServiceError
@@ -40,7 +40,8 @@ class DocumentService:
     """Coordinate duplicate detection, PDF processing, and Notion persistence."""
 
     def __init__(self) -> None:
-        self.notion_service = NotionService()
+        self.document_notion_service = DocumentNotionService()
+        self.run_log_notion_service = RunLogNotionService()
         self.ai_service = AIService()
         self.approval_service = ApprovalService()
         # OCR is optional — a missing Mistral key must not break non-OCR paths.
@@ -51,15 +52,15 @@ class DocumentService:
     ) -> dict[str, Any]:
         """Return an existing document or process and persist one new document."""
         async with _document_creation_lock:
-            duplicate_result = await self.notion_service.check_duplicate_document(file_hash)
+            duplicate_result = await self.document_notion_service.check_duplicate_document(file_hash)
             if duplicate_result["is_duplicate"]:
                 return duplicate_result
 
             processed_document = process_pdf(file_bytes, filename, file_hash)
 
-            document_id = (await self.notion_service.create_processed_document(filename, file_hash))["id"]
+            document_id = (await self.document_notion_service.create_processed_document(filename, file_hash))["id"]
             logger.info("[WORKFLOW] Document created in Notion: %s (id=%s)", filename, document_id)
-            await self.notion_service.create_run_log_entry("Document Received", "Success", f"Started processing {filename}", document_id)
+            await self.run_log_notion_service.create_run_log_entry("Document Received", "Success", f"Started processing {filename}", document_id)
 
             extracted_text = processed_document["extracted_text"]
             needs_human_review = processed_document["needs_human_review"]
@@ -127,23 +128,23 @@ class DocumentService:
                         filename
                     )
 
-                    await self.notion_service.update_document_analysis(
+                    await self.document_notion_service.update_document_analysis(
                         document_id, analysis, processing_status.value
                     )
-                    await self.notion_service.create_run_log_entry("AI Extraction", "Success", "AI successfully extracted document data.", document_id)
+                    await self.run_log_notion_service.create_run_log_entry("AI Extraction", "Success", "AI successfully extracted document data.", document_id)
 
                 except AIServiceError as exc:
                     logger.warning("[WORKFLOW] AI analysis failed for %s: %s", filename, exc)
                     processing_status = ProcessingStatus.AI_ANALYSIS_FAILED
-                    await self.notion_service.update_document_analysis(
+                    await self.document_notion_service.update_document_analysis(
                         document_id, None, processing_status.value
                     )
-                    await self.notion_service.create_run_log_entry("AI Extraction", "Failed", f"AI analysis failed: {exc}", document_id)
+                    await self.run_log_notion_service.create_run_log_entry("AI Extraction", "Failed", f"AI analysis failed: {exc}", document_id)
             else:
                 processing_status = ProcessingStatus.NEEDS_HUMAN_REVIEW
-                await self.notion_service.create_run_log_entry("Text Extraction", "Failed", "Could not extract readable text from document.", document_id)
+                await self.run_log_notion_service.create_run_log_entry("Text Extraction", "Failed", "Could not extract readable text from document.", document_id)
                 logger.info("[WORKFLOW] No usable text for %s — human review required", filename)
-                await self.notion_service.update_document_analysis(
+                await self.document_notion_service.update_document_analysis(
                     document_id, None, processing_status.value
                 )
 
