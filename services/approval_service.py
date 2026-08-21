@@ -1,8 +1,8 @@
 import logging
 from datetime import datetime, timezone
 
-from models.approval import ApprovalStatus
-from models.workflow import DocumentStatus
+from models.approval import ApprovalDecision
+from models.workflow import DecisionStatus
 from services.notion_service import NotionService, NotionServiceError
 
 logger = logging.getLogger(__name__)
@@ -37,7 +37,7 @@ class ApprovalService:
                 created_at=now_iso,
             )
             logger.info("[APPROVAL] Approval queue entry created: %s", new_approval["id"])
-            return {"id": new_approval["id"], "status": ApprovalStatus.PENDING_APPROVAL.value}
+            return {"id": new_approval["id"], "status": ApprovalDecision.PENDING_DECISION.value}
 
         except NotionServiceError as exc:
             logger.error("[APPROVAL] Failed to queue document %s: %s", document_name, exc)
@@ -69,7 +69,7 @@ class ApprovalService:
                     date_obj = props.get(prop_name, {}).get("date")
                     return date_obj.get("start") if date_obj else None
                 
-                status_obj = props.get("Approval Status", {}).get("status")
+                status_obj = props.get("Approval Decision", {}).get("status")
                 status = status_obj.get("name") if isinstance(status_obj, dict) else ""
                 
                 approvals.append({
@@ -94,9 +94,9 @@ class ApprovalService:
                 raise ApprovalServiceError(f"Approval not found: {exc}", status_code=404) from exc
                 
             props = page.get("properties", {})
-            current_status = props.get("Approval Status", {}).get("status", {}).get("name")
+            current_status = props.get("Approval Decision", {}).get("status", {}).get("name")
             
-            if current_status != ApprovalStatus.PENDING_APPROVAL.value:
+            if current_status != ApprovalDecision.PENDING_DECISION.value:
                 raise ApprovalServiceError(f"Cannot submit decision for approval in state: {current_status}", status_code=400)
                 
             doc_relation = props.get("Document", {}).get("relation", [])
@@ -117,15 +117,8 @@ class ApprovalService:
             )
             
             # 3. Synchronize with DOCUMENT INBOX
-            if decision == ApprovalStatus.APPROVED.value:
-                logger.info("[APPROVAL] Document approved. Updating inbox status to %s.", DocumentStatus.APPROVED.value)
-                await self.notion_service.update_document_status_only(document_id, DocumentStatus.APPROVED.value)
-            elif decision == ApprovalStatus.REJECTED.value:
-                logger.info("[APPROVAL] Document rejected. Updating inbox status to %s.", DocumentStatus.REJECTED.value)
-                await self.notion_service.update_document_status_only(document_id, DocumentStatus.REJECTED.value)
-            elif decision == ApprovalStatus.NEEDS_CORRECTION.value:
-                logger.info("[APPROVAL] Document marked for correction.")
-                # We leave the inbox status as Needs Human Review until it is finally Approved.
+            logger.info("[APPROVAL] Document decision submitted. Updating inbox decision status to %s.", DecisionStatus.DECISION_TAKEN.value)
+            await self.notion_service.update_decision_status_only(document_id, DecisionStatus.DECISION_TAKEN.value)
                 
             return {"success": True, "approval_id": approval_id, "decision": decision}
             

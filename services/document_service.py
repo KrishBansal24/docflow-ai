@@ -2,7 +2,10 @@ import asyncio
 import logging
 from typing import Any
 
-from models.workflow import DocumentStatus
+from config import get_settings
+
+from models.workflow import ProcessingStatus, DecisionStatus
+from models.approval import ApprovalDecision
 from services.notion_service import NotionService
 from services.pdf_service import process_pdf
 from services.ai_service import AIService, AIServiceError
@@ -110,72 +113,69 @@ class DocumentService:
             # AI analysis — only for documents with usable text.
             # ----------------------------------------------------------------
             analysis = None
-            workflow_status: DocumentStatus
+            processing_status: ProcessingStatus
+            decision_status = DecisionStatus.PENDING_DECISION
+            approval_decision = ApprovalDecision.PENDING_DECISION
 
             if not needs_human_review:
                 try:
                     analysis = self.ai_service.analyze_document(extracted_text)
-
-                    if analysis.requires_human_approval:
-                        needs_human_review = True
-                        workflow_status = DocumentStatus.NEEDS_HUMAN_REVIEW
-                        logger.info(
-                            "[WORKFLOW] AI confidence below threshold for %s — human review required (confidence=%.2f)",
-                            filename, analysis.confidence,
-                        )
-                    else:
-                        workflow_status = DocumentStatus.AI_ANALYZED
-                        logger.info(
-                            "[WORKFLOW] AI analysis completed for %s (confidence=%.2f)",
-                            filename, analysis.confidence,
-                        )
+                    processing_status = ProcessingStatus.AI_ANALYZED
+                    logger.info(
+                        "[WORKFLOW] AI analysis completed for %s",
+                        filename
+                    )
 
                     await self.notion_service.update_document_analysis(
-                        document_id, analysis, workflow_status.value
+                        document_id, analysis, processing_status.value
                     )
 
                 except AIServiceError as exc:
                     logger.warning("[WORKFLOW] AI analysis failed for %s: %s", filename, exc)
-                    needs_human_review = True
-                    workflow_status = DocumentStatus.AI_ANALYSIS_FAILED
+                    processing_status = ProcessingStatus.AI_ANALYSIS_FAILED
                     await self.notion_service.update_document_analysis(
-                        document_id, None, workflow_status.value
+                        document_id, None, processing_status.value
                     )
             else:
-                workflow_status = DocumentStatus.NEEDS_HUMAN_REVIEW
+                processing_status = ProcessingStatus.NEEDS_HUMAN_REVIEW
                 logger.info("[WORKFLOW] No usable text for %s — human review required", filename)
                 await self.notion_service.update_document_analysis(
-                    document_id, None, workflow_status.value
+                    document_id, None, processing_status.value
                 )
 
             # ----------------------------------------------------------------
             # Human Approval Queue Integration (Phase 6)
+            # Universal Rule: EVERY unique document must enter the Approval Queue
             # ----------------------------------------------------------------
-            if needs_human_review:
-                try:
-                    reason = "AI Confidence Low" if analysis else "No Usable Text / OCR Failed"
-                    if analysis and analysis.requires_human_approval:
-                        reason = f"AI Confidence Low ({analysis.confidence:.2f})"
-                    
-                    await self.approval_service.queue_document_for_review(
-                        document_id=document_id,
-                        document_name=filename,
-                        reason=reason
-                    )
-                except ApprovalServiceError as exc:
-                    logger.error("[WORKFLOW] Failed to queue document for approval: %s", exc)
-                    # We log the error but don't crash the upload flow; the document is still in inbox.
-
-            processed_document["needs_human_review"] = needs_human_review
+            try:
+                reason = "Routine Review"
+                if processing_status == ProcessingStatus.NEEDS_HUMAN_REVIEW:
+                    reason = "No Usable Text / OCR Failed"
+                elif processing_status == ProcessingStatus.AI_ANALYSIS_FAILED:
+                    reason = "AI Analysis Failed"
+                
+                await self.approval_service.queue_document_for_review(
+                    document_id=document_id,
+                    document_name=filename,
+                    reason=reason
+                )
+            except ApprovalServiceError as exc:
+                logger.error("[WORKFLOW] Failed to queue document for approval: %s", exc)
+                # We log the error but don't crash the upload flow; the document is still in inbox.
 
             logger.info(
-                "[WORKFLOW] Final status for %s: %s", filename, workflow_status.value
+                "[WORKFLOW] Final status for %s: %s", filename, processing_status.value
             )
+
+            # Clean up the output dictionary to only include what's requested
+            processed_document.pop("needs_human_review", None)
 
             return {
                 "is_duplicate": False,
                 "document_id": document_id,
                 "analysis": analysis,
-                "workflow_status": workflow_status.value,
+                "processing_status": processing_status.value,
+                "decision_status": decision_status.value,
+                "approval_decision": approval_decision.value,
                 **processed_document,
             }

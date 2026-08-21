@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 
 from main import app
-from models.approval import ApprovalStatus
-from models.workflow import DocumentStatus
+from models.approval import ApprovalDecision
+from models.workflow import ProcessingStatus, DecisionStatus
 
 class TestPhase6(unittest.TestCase):
     def setUp(self):

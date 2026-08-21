@@ -32,8 +32,6 @@ class DocumentAnalysisResult(BaseModel):
     short_summary: str | None = None
     required_action: str | None = None
     suggested_recipient: str | None = None
-    confidence: float
-    requires_human_approval: bool
     reasoning_summary: str | None = None
 
 
@@ -46,10 +44,11 @@ class UniqueDocumentResponse(BaseModel):
     text: str
     character_count: int
     file_hash: str
-    needs_human_review: bool
     text_extraction_method: str  # 'embedded', 'ocr', or 'none'
     ocr_used: bool
-    workflow_status: str
+    processing_status: str
+    decision_status: str
+    approval_decision: str
     analysis: DocumentAnalysisResult | None = None
 
 
@@ -79,3 +78,4 @@ class DuplicateDocumentResponse(BaseModel):
     file_hash: str
     existing_document_name: str | None = None
     existing_document_status: str | None = None
+    existing_decision_status: str | None = None

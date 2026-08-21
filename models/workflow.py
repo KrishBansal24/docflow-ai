@@ -7,12 +7,17 @@ from this enum.  Using raw strings elsewhere is a bug.
 from enum import Enum
 
 
-class DocumentStatus(str, Enum):
-    """Valid lifecycle states for a document in the DOCUMENT INBOX."""
+class ProcessingStatus(str, Enum):
+    """The technical result of document processing."""
 
     PROCESSING = "Processing"
     AI_ANALYZED = "AI Analyzed"
     NEEDS_HUMAN_REVIEW = "Needs Human Review"
     AI_ANALYSIS_FAILED = "AI Analysis Failed"
-    APPROVED = "Approved"
-    REJECTED = "Rejected"
+
+
+class DecisionStatus(str, Enum):
+    """Whether a human has completed the review."""
+
+    PENDING_DECISION = "Pending Decision"
+    DECISION_TAKEN = "Decision Taken"

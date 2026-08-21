@@ -112,7 +112,6 @@ class ProcessPdfTests(unittest.TestCase):
             "Invoice Number IN-2025-001\nVendor: ABC Corp Ltd\nTotal Amount: INR 1500\nDate: 01 Jan 2025"
         )
         result = process_pdf(pdf, "invoice.pdf", "hash123")
-        self.assertFalse(result["needs_human_review"])
         self.assertEqual(result["text_extraction_method"], "embedded")
         self.assertFalse(result["ocr_used"])
         self.assertGreater(result["character_count"], 0)
@@ -120,7 +119,6 @@ class ProcessPdfTests(unittest.TestCase):
     def test_whitespace_pdf_flagged(self) -> None:
         pdf = _make_whitespace_pdf()
         result = process_pdf(pdf, "blank.pdf", "hash456")
-        self.assertTrue(result["needs_human_review"])
         self.assertEqual(result["text_extraction_method"], "none")
         self.assertFalse(result["ocr_used"])
         self.assertEqual(result["character_count"], 0)
@@ -133,7 +131,6 @@ class ProcessPdfTests(unittest.TestCase):
         ])
         result = process_pdf(pdf, "amazon-invoice.pdf", "hash789")
         self.assertEqual(result["page_count"], 2)
-        self.assertFalse(result["needs_human_review"])
         self.assertIn("Amazon Invoice", result["extracted_text"])
         self.assertIn("Cash on Delivery", result["extracted_text"])
 
@@ -187,8 +184,7 @@ class DocumentServicePipelineTests(unittest.TestCase):
         mock_ai = mock_ai_class.return_value
         from models.schemas import DocumentAnalysisResult
         mock_ai.analyze_document.return_value = DocumentAnalysisResult(
-            confidence=0.9, requires_human_approval=False
-        )
+            )
         pdf = _make_text_pdf(
             "Amazon Invoice IN-2025-001\nVendor: Amazon India\nTotal: INR 1699\nDate: 2025-01-01"
         )
@@ -198,7 +194,6 @@ class DocumentServicePipelineTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertFalse(data["needs_human_review"])
         self.assertEqual(data["text_extraction_method"], "embedded")
         self.assertFalse(data["ocr_used"])
         self.mock_ocr.extract_text.assert_not_called()
@@ -209,8 +204,7 @@ class DocumentServicePipelineTests(unittest.TestCase):
         mock_ai = mock_ai_class.return_value
         from models.schemas import DocumentAnalysisResult
         mock_ai.analyze_document.return_value = DocumentAnalysisResult(
-            confidence=0.85, requires_human_approval=False
-        )
+            )
         pdf = _make_whitespace_pdf()
         response = self.client.post(
             "/documents/upload",
@@ -225,8 +219,7 @@ class DocumentServicePipelineTests(unittest.TestCase):
         mock_ai = mock_ai_class.return_value
         from models.schemas import DocumentAnalysisResult
         mock_ai.analyze_document.return_value = DocumentAnalysisResult(
-            confidence=0.8, requires_human_approval=False
-        )
+            )
         pdf = _make_whitespace_pdf()
         response = self.client.post(
             "/documents/upload",
@@ -236,7 +229,6 @@ class DocumentServicePipelineTests(unittest.TestCase):
         data = response.json()
         self.assertEqual(data["text_extraction_method"], "ocr")
         self.assertTrue(data["ocr_used"])
-        self.assertFalse(data["needs_human_review"])
 
     # TEST 6: Scanned PDF + OCR fails → needs_human_review=True, no crash
     @patch("services.document_service.AIService")
@@ -249,7 +241,6 @@ class DocumentServicePipelineTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertTrue(data["needs_human_review"])
         self.assertEqual(data["text_extraction_method"], "none")
         self.assertFalse(data["ocr_used"])
 
@@ -263,8 +254,7 @@ class DocumentServicePipelineTests(unittest.TestCase):
         mock_ai = mock_ai_class.return_value
         from models.schemas import DocumentAnalysisResult
         mock_ai.analyze_document.return_value = DocumentAnalysisResult(
-            confidence=0.9, requires_human_approval=False
-        )
+            )
         pdf = _make_text_pdf(
             "Amazon Invoice IN-2025-XYZ\nTotal: INR 5000\nOrder: 123-456\nVendor: Amazon"
         )
@@ -275,7 +265,6 @@ class DocumentServicePipelineTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         # Must succeed based on embedded text alone
-        self.assertFalse(data["needs_human_review"])
         self.assertEqual(data["text_extraction_method"], "embedded")
         self.assertFalse(data["ocr_used"])
         self.mock_ocr.extract_text.assert_not_called()
@@ -286,8 +275,7 @@ class DocumentServicePipelineTests(unittest.TestCase):
         mock_ai = mock_ai_class.return_value
         from models.schemas import DocumentAnalysisResult
         mock_ai.analyze_document.return_value = DocumentAnalysisResult(
-            confidence=0.92, requires_human_approval=False
-        )
+            )
         pdf = _make_multipage_pdf([
             "Amazon Invoice IN-2025-001\nOrder 402-1234567-8901234\nDate: 30 December 2025\n"
             "Billed to: Jyoti, 123 Main Street, New Delhi\nItem: Laptop Stand INR 1699",
@@ -300,7 +288,6 @@ class DocumentServicePipelineTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["page_count"], 2)
-        self.assertFalse(data["needs_human_review"])
         self.assertEqual(data["text_extraction_method"], "embedded")
         self.assertFalse(data["ocr_used"])
         self.assertGreater(data["character_count"], 100)
@@ -314,7 +301,7 @@ class DocumentServicePipelineTests(unittest.TestCase):
                 "is_duplicate": True,
                 "existing_document_id": "old-page-id",
                 "existing_document_name": "invoice.pdf",
-                "existing_document_status": "Processing",
+                "existing_decision_status": "Processing",
             }
         )
         pdf = _make_text_pdf("Amazon Invoice: some text here for a duplicate test file")

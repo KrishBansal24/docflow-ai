@@ -24,11 +24,6 @@ class Settings(BaseModel):
     ai_provider: str = os.getenv("AI_PROVIDER", "gemini")
     ai_api_key: str | None = os.getenv("AI_API_KEY")
     ai_model: str = os.getenv("AI_MODEL", "gemini-3.6-flash")
-    ai_confidence_threshold: float = Field(
-        default_factory=lambda: float(os.getenv("AI_CONFIDENCE_THRESHOLD", "0.70")),
-        ge=0.0,
-        le=1.0,
-    )
     
     # OCR Fallback Settings
     mistral_api_key: str | None = os.getenv("MISTRAL_API_KEY")

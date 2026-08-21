@@ -4,8 +4,8 @@ from typing import Any
 import httpx
 
 from config import get_settings
-from models.workflow import DocumentStatus
-from models.approval import ApprovalStatus
+from models.workflow import ProcessingStatus, DecisionStatus
+from models.approval import ApprovalDecision
 
 
 logger = logging.getLogger(__name__)
@@ -15,12 +15,13 @@ NOTION_API_URL = "https://api.notion.com/v1"
 NOTION_API_VERSION = "2026-03-11"
 FILE_HASH_PROPERTY = "File Hash"
 DOCUMENT_NAME_PROPERTY = "Document Name"
-STATUS_PROPERTY = "Status"
+PROCESSING_STATUS_PROPERTY = "Processing Status"
+DECISION_STATUS_PROPERTY = "Decision Status"
 
 # Approval Queue Properties
 APPROVAL_NAME_PROPERTY = "Approval Name"
 DOCUMENT_RELATION_PROPERTY = "Document"
-APPROVAL_STATUS_PROPERTY = "Approval Status"
+APPROVAL_DECISION_PROPERTY = "Approval Decision"
 REASON_PROPERTY = "Reason for Review"
 REVIEWER_NOTES_PROPERTY = "Reviewer Notes"
 CREATED_AT_PROPERTY = "Created At"
@@ -139,7 +140,8 @@ class NotionService:
         required_types = {
             FILE_HASH_PROPERTY: "rich_text",
             DOCUMENT_NAME_PROPERTY: "title",
-            STATUS_PROPERTY: "status",
+            PROCESSING_STATUS_PROPERTY: "status",
+            DECISION_STATUS_PROPERTY: "status",
         }
         missing_or_invalid = [
             f"{name} ({property_type})"
@@ -150,20 +152,31 @@ class NotionService:
             raise NotionServiceError(
                 "DOCUMENT INBOX is missing required properties: "
                 + ", ".join(missing_or_invalid)
-                + ". Add 'File Hash' as Rich Text, 'Document Name' as Title, and 'Status' as Status."
+                + ". Add 'File Hash' as Rich Text, 'Document Name' as Title, and 'Processing Status' and 'Decision Status' as Status."
             )
 
-        # Validate that all DocumentStatus values exist as Status options.
-        # Missing options are logged as warnings but do NOT crash — Notion
-        # auto-creates status options when written for the first time.
-        available_options = {
+        # Validate ProcessingStatus values
+        available_processing_options = {
             option.get("name")
-            for option in properties[STATUS_PROPERTY].get("status", {}).get("options", [])
+            for option in properties[PROCESSING_STATUS_PROPERTY].get("status", {}).get("options", [])
         }
-        for status in DocumentStatus:
-            if status.value not in available_options:
+        for status in ProcessingStatus:
+            if status.value not in available_processing_options:
                 logger.warning(
-                    "[WORKFLOW] Notion Status option '%s' not found in DOCUMENT INBOX. "
+                    "[WORKFLOW] Notion Processing Status option '%s' not found in DOCUMENT INBOX. "
+                    "It will be created automatically on first use.",
+                    status.value,
+                )
+
+        # Validate DecisionStatus values
+        available_decision_options = {
+            option.get("name")
+            for option in properties[DECISION_STATUS_PROPERTY].get("status", {}).get("options", [])
+        }
+        for status in DecisionStatus:
+            if status.value not in available_decision_options:
+                logger.warning(
+                    "[WORKFLOW] Notion Decision Status option '%s' not found in DOCUMENT INBOX. "
                     "It will be created automatically on first use.",
                     status.value,
                 )
@@ -174,7 +187,7 @@ class NotionService:
         required_types = {
             APPROVAL_NAME_PROPERTY: "title",
             DOCUMENT_RELATION_PROPERTY: "relation",
-            APPROVAL_STATUS_PROPERTY: "status",
+            APPROVAL_DECISION_PROPERTY: "status",
         }
         missing_or_invalid = [
             f"{name} ({property_type})"
@@ -189,14 +202,14 @@ class NotionService:
 
         available_options = {
             option.get("name")
-            for option in properties[APPROVAL_STATUS_PROPERTY].get("status", {}).get("options", [])
+            for option in properties[APPROVAL_DECISION_PROPERTY].get("status", {}).get("options", [])
         }
-        for status in ApprovalStatus:
-            if status.value not in available_options:
+        for decision in ApprovalDecision:
+            if decision.value not in available_options:
                 logger.warning(
-                    "[WORKFLOW] Notion Approval Status option '%s' not found in APPROVAL QUEUE. "
+                    "[WORKFLOW] Notion Approval Decision option '%s' not found in APPROVAL QUEUE. "
                     "It will be created automatically on first use.",
-                    status.value,
+                    decision.value,
                 )
 
     async def check_duplicate_document(self, file_hash: str) -> dict[str, Any]:
@@ -222,7 +235,8 @@ class NotionService:
 
         existing_page = results[0]
         properties = existing_page.get("properties", {})
-        status_value = properties.get(STATUS_PROPERTY, {}).get("status")
+        processing_status_value = properties.get(PROCESSING_STATUS_PROPERTY, {}).get("status")
+        decision_status_value = properties.get(DECISION_STATUS_PROPERTY, {}).get("status")
         return {
             "is_duplicate": True,
             "existing_document_id": existing_page.get("id"),
@@ -230,7 +244,10 @@ class NotionService:
                 properties.get(DOCUMENT_NAME_PROPERTY, {}), "title"
             ),
             "existing_document_status": (
-                status_value.get("name") if isinstance(status_value, dict) else None
+                processing_status_value.get("name") if isinstance(processing_status_value, dict) else None
+            ),
+            "existing_decision_status": (
+                decision_status_value.get("name") if isinstance(decision_status_value, dict) else None
             ),
         }
 
@@ -247,21 +264,22 @@ class NotionService:
                 FILE_HASH_PROPERTY: {
                     "rich_text": [{"text": {"content": file_hash}}],
                 },
-                STATUS_PROPERTY: {"status": {"name": DocumentStatus.PROCESSING.value}},
+                PROCESSING_STATUS_PROPERTY: {"status": {"name": ProcessingStatus.PROCESSING.value}},
+                DECISION_STATUS_PROPERTY: {"status": {"name": DecisionStatus.PENDING_DECISION.value}},
             },
         }
         return await self._request("POST", "/pages", json=payload)
 
-    async def update_document_analysis(self, page_id: str, analysis_result: Any | None, status_name: str) -> dict[str, Any]:
+    async def update_document_analysis(self, page_id: str, analysis_result: Any | None, processing_status_name: str) -> dict[str, Any]:
         """Update an existing Notion page with AI analysis results safely."""
         document_source = await self._get_data_source(self.settings.document_inbox_id or "")
         properties_schema = document_source.get("properties", {})
         
         properties_payload: dict[str, Any] = {}
         
-        # Always update status if possible
-        if STATUS_PROPERTY in properties_schema:
-            properties_payload[STATUS_PROPERTY] = {"status": {"name": status_name}}
+        # Always update processing status if possible
+        if PROCESSING_STATUS_PROPERTY in properties_schema:
+            properties_payload[PROCESSING_STATUS_PROPERTY] = {"status": {"name": processing_status_name}}
             
         if analysis_result:
             if "Document Type" in properties_schema and properties_schema["Document Type"].get("type") == "select" and analysis_result.document_type:
@@ -294,23 +312,17 @@ class NotionService:
             if "Suggested Recipient" in properties_schema and properties_schema["Suggested Recipient"].get("type") == "rich_text" and analysis_result.suggested_recipient:
                 properties_payload["Suggested Recipient"] = {"rich_text": [{"text": {"content": analysis_result.suggested_recipient}}]}
                 
-            if "AI Confidence" in properties_schema and properties_schema["AI Confidence"].get("type") == "number" and analysis_result.confidence is not None:
-                properties_payload["AI Confidence"] = {"number": analysis_result.confidence}
-                
-            if "Human Approval Required" in properties_schema and properties_schema["Human Approval Required"].get("type") == "checkbox" and analysis_result.requires_human_approval is not None:
-                properties_payload["Human Approval Required"] = {"checkbox": analysis_result.requires_human_approval}
-                
         if not properties_payload:
             return {}
             
         payload = {"properties": properties_payload}
         return await self._request("PATCH", f"/pages/{page_id}", json=payload)
 
-    async def update_document_status_only(self, page_id: str, status_name: str) -> dict[str, Any]:
-        """Update just the status of a DOCUMENT INBOX page."""
+    async def update_decision_status_only(self, page_id: str, decision_status_name: str) -> dict[str, Any]:
+        """Update just the decision status of a DOCUMENT INBOX page."""
         payload = {
             "properties": {
-                STATUS_PROPERTY: {"status": {"name": status_name}}
+                DECISION_STATUS_PROPERTY: {"status": {"name": decision_status_name}}
             }
         }
         return await self._request("PATCH", f"/pages/{page_id}", json=payload)
@@ -341,11 +353,11 @@ class NotionService:
             
         page = results[0]
         properties = page.get("properties", {})
-        status_value = properties.get(APPROVAL_STATUS_PROPERTY, {}).get("status")
+        decision_value = properties.get(APPROVAL_DECISION_PROPERTY, {}).get("status")
         
         return {
             "id": page.get("id"),
-            "status": status_value.get("name") if isinstance(status_value, dict) else None,
+            "status": decision_value.get("name") if isinstance(decision_value, dict) else None,
         }
 
     async def create_approval_entry(self, document_id: str, document_name: str, reason: str, created_at: str) -> dict[str, Any]:
@@ -363,8 +375,8 @@ class NotionService:
             DOCUMENT_RELATION_PROPERTY: {
                 "relation": [{"id": document_id}],
             },
-            APPROVAL_STATUS_PROPERTY: {
-                "status": {"name": ApprovalStatus.PENDING_APPROVAL.value},
+            APPROVAL_DECISION_PROPERTY: {
+                "status": {"name": ApprovalDecision.PENDING_DECISION.value},
             },
         }
         
@@ -394,8 +406,8 @@ class NotionService:
             f"/data_sources/{approval_source['id']}/query",
             json={
                 "filter": {
-                    "property": APPROVAL_STATUS_PROPERTY,
-                    "status": {"equals": ApprovalStatus.PENDING_APPROVAL.value},
+                    "property": APPROVAL_DECISION_PROPERTY,
+                    "status": {"equals": ApprovalDecision.PENDING_DECISION.value},
                 },
             },
         )
@@ -415,7 +427,7 @@ class NotionService:
         schema = approval_source.get("properties", {})
         
         properties_payload: dict[str, Any] = {
-            APPROVAL_STATUS_PROPERTY: {"status": {"name": decision}}
+            APPROVAL_DECISION_PROPERTY: {"status": {"name": decision}}
         }
         
         if notes and REVIEWER_NOTES_PROPERTY in schema and schema[REVIEWER_NOTES_PROPERTY].get("type") == "rich_text":

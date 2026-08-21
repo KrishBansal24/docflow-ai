@@ -3,10 +3,10 @@
 from enum import Enum
 
 
-class ApprovalStatus(str, Enum):
-    """Valid lifecycle states for an item in the APPROVAL QUEUE."""
+class ApprovalDecision(str, Enum):
+    """Represents the human decision in the APPROVAL QUEUE."""
 
-    PENDING_APPROVAL = "Pending Approval"
+    PENDING_DECISION = "Pending Decision"
     APPROVED = "Approved"
     REJECTED = "Rejected"
     NEEDS_CORRECTION = "Needs Correction"

@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 import main
 from models.schemas import DocumentAnalysisResult
-from models.workflow import DocumentStatus
+from models.workflow import ProcessingStatus, DecisionStatus
 from services.ai_service import AIServiceError
 from services.ocr_service import OCRServiceError
 from services.notion_service import NotionService, NotionServiceError
@@ -81,9 +81,7 @@ class Phase5Tests(unittest.TestCase):
             document_type="Supplier Invoice",
             vendor_or_company="ABC Corp",
             amount=123.0,
-            confidence=0.95,
-            requires_human_approval=False,
-        )
+            )
 
         response = self.client.post(
             "/documents/upload",
@@ -92,14 +90,13 @@ class Phase5Tests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(data["workflow_status"], DocumentStatus.AI_ANALYZED.value)
-        self.assertFalse(data["needs_human_review"])
+        self.assertEqual(data["processing_status"], ProcessingStatus.AI_ANALYZED.value)
         self.assertIsNotNone(data["analysis"])
 
         self.mock_notion.update_document_analysis.assert_called_once_with(
             "fake-page-id",
             mock_ai.analyze_document.return_value,
-            DocumentStatus.AI_ANALYZED.value,
+            ProcessingStatus.AI_ANALYZED.value,
         )
 
     # ------------------------------------------------------------------
@@ -110,9 +107,7 @@ class Phase5Tests(unittest.TestCase):
         mock_ai = mock_ai_class.return_value
         mock_ai.analyze_document.return_value = DocumentAnalysisResult(
             document_type="Unknown",
-            confidence=0.3,
-            requires_human_approval=True,
-        )
+            )
 
         response = self.client.post(
             "/documents/upload",
@@ -121,8 +116,7 @@ class Phase5Tests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(data["workflow_status"], DocumentStatus.NEEDS_HUMAN_REVIEW.value)
-        self.assertTrue(data["needs_human_review"])
+        self.assertEqual(data["processing_status"], ProcessingStatus.AI_ANALYZED.value)
 
     # ------------------------------------------------------------------
     # TEST 3: AI failure → AI Analysis Failed
@@ -139,8 +133,7 @@ class Phase5Tests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(data["workflow_status"], DocumentStatus.AI_ANALYSIS_FAILED.value)
-        self.assertTrue(data["needs_human_review"])
+        self.assertEqual(data["processing_status"], ProcessingStatus.AI_ANALYSIS_FAILED.value)
         self.assertIsNone(data.get("analysis"))
 
     # ------------------------------------------------------------------
@@ -153,7 +146,7 @@ class Phase5Tests(unittest.TestCase):
                 "is_duplicate": True,
                 "existing_document_id": "dup-page-id",
                 "existing_document_name": "invoice.pdf",
-                "existing_document_status": DocumentStatus.AI_ANALYZED.value,
+                "existing_decision_status": ProcessingStatus.AI_ANALYZED.value,
             }
         )
 
@@ -181,9 +174,7 @@ class Phase5Tests(unittest.TestCase):
         mock_ai = mock_ai_class.return_value
         mock_ai.analyze_document.return_value = DocumentAnalysisResult(
             document_type="Invoice",
-            confidence=0.9,
-            requires_human_approval=False,
-        )
+            )
         # Simulate Notion returning empty dict (all optional properties missing)
         self.mock_notion.update_document_analysis = AsyncMock(return_value={})
 
@@ -194,7 +185,7 @@ class Phase5Tests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(data["workflow_status"], DocumentStatus.AI_ANALYZED.value)
+        self.assertEqual(data["processing_status"], ProcessingStatus.AI_ANALYZED.value)
 
     # ------------------------------------------------------------------
     # TEST 6: Missing Notion status option — Notion update error caught
@@ -206,9 +197,7 @@ class Phase5Tests(unittest.TestCase):
         mock_ai = mock_ai_class.return_value
         mock_ai.analyze_document.return_value = DocumentAnalysisResult(
             document_type="Invoice",
-            confidence=0.9,
-            requires_human_approval=False,
-        )
+            )
         self.mock_notion.update_document_analysis = AsyncMock(
             side_effect=NotionServiceError("Status option 'AI Analyzed' not found")
         )
@@ -245,9 +234,7 @@ class Phase5Tests(unittest.TestCase):
         mock_ai = mock_ai_class.return_value
         mock_ai.analyze_document.return_value = DocumentAnalysisResult(
             document_type="Invoice",
-            confidence=0.85,
-            requires_human_approval=False,
-        )
+            )
 
         pdf = _make_whitespace_pdf()  # No embedded text → triggers OCR
         response = self.client.post(
@@ -259,7 +246,7 @@ class Phase5Tests(unittest.TestCase):
         data = response.json()
         self.assertTrue(data["ocr_used"])
         self.assertEqual(data["text_extraction_method"], "ocr")
-        self.assertEqual(data["workflow_status"], DocumentStatus.AI_ANALYZED.value)
+        self.assertEqual(data["processing_status"], ProcessingStatus.AI_ANALYZED.value)
 
     # ------------------------------------------------------------------
     # TEST 9: Embedded text PDF → correct workflow status
@@ -270,9 +257,7 @@ class Phase5Tests(unittest.TestCase):
         mock_ai.analyze_document.return_value = DocumentAnalysisResult(
             document_type="Supplier Invoice",
             vendor_or_company="Amazon",
-            confidence=0.92,
-            requires_human_approval=False,
-        )
+            )
 
         response = self.client.post(
             "/documents/upload",
@@ -283,25 +268,24 @@ class Phase5Tests(unittest.TestCase):
         data = response.json()
         self.assertEqual(data["text_extraction_method"], "embedded")
         self.assertFalse(data["ocr_used"])
-        self.assertEqual(data["workflow_status"], DocumentStatus.AI_ANALYZED.value)
-        self.assertFalse(data["needs_human_review"])
+        self.assertEqual(data["processing_status"], ProcessingStatus.AI_ANALYZED.value)
 
 
-class DocumentStatusEnumTests(unittest.TestCase):
+class ProcessingStatusEnumTests(unittest.TestCase):
     """Verify the DocumentStatus enum itself."""
 
     def test_all_status_values_are_strings(self) -> None:
-        for member in DocumentStatus:
+        for member in ProcessingStatus:
             self.assertIsInstance(member.value, str)
 
     def test_expected_members_exist(self) -> None:
-        expected = {"Processing", "AI Analyzed", "Needs Human Review", "AI Analysis Failed", "Approved", "Rejected"}
-        actual = {s.value for s in DocumentStatus}
+        expected = {"Processing", "AI Analyzed", "Needs Human Review", "AI Analysis Failed"}
+        actual = {s.value for s in ProcessingStatus}
         self.assertEqual(actual, expected)
 
     def test_enum_is_str_subclass(self) -> None:
-        """DocumentStatus(str, Enum) allows using members directly as strings."""
-        self.assertEqual(DocumentStatus.PROCESSING, "Processing")
+        """ProcessingStatus(str, Enum) allows using members directly as strings."""
+        self.assertEqual(ProcessingStatus.PROCESSING, "Processing")
 
 
 if __name__ == "__main__":

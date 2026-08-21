@@ -27,48 +27,43 @@ class AIService:
     def analyze_document(self, document_text: str) -> DocumentAnalysisResult:
         """Analyze document text and extract structured information."""
         prompt = (
-            "You are an AI document analysis assistant. Your task is to extract specific business details "
-            "from the provided document text.\n"
-            "Analyze the document text and determine the following information:\n"
-            "- document_type: Identify the type of document (e.g. Supplier Invoice, Utility Bill, Vendor Quotation, Payment Reminder, etc.)\n"
-            "- vendor_or_company: The name of the vendor or company issuing the document.\n"
-            "- reference_number: The invoice number or reference number.\n"
-            "- amount: The total amount due or referenced in the document. If no amount is found, return null.\n"
-            "- currency: The currency of the amount.\n"
-            "- due_date: The due date for payment or action (ISO 8601 format like YYYY-MM-DD). If no due date, return null.\n"
-            "- priority: Determine the priority (e.g. Low, Medium, High, Critical, Unknown).\n"
-            "- short_summary: A short, concise summary of the document.\n"
-            "- required_action: Any action that needs to be taken.\n"
-            "- suggested_recipient: Who should receive or review this document (e.g. Finance Manager, HR).\n"
-            "- confidence: A confidence score between 0.0 and 1.0 reflecting your certainty of this extraction.\n"
-            "- requires_human_approval: Set to true if important or risky actions are required, or if you are unsure.\n"
-            "- reasoning_summary: A short, user-facing summary of why you extracted this information.\n\n"
-            "Do NOT invent information. If a field cannot be determined reliably, leave it as null.\n\n"
-            f"Document Text:\n{document_text}"
+            "You are an AI document analysis assistant. Read the following text and extract the key information.\n"
+            "Return a valid JSON object matching this schema exactly:\n"
+            "{\n"
+            '  "document_type": "Invoice" | "Receipt" | "Contract" | "Unknown",\n'
+            '  "vendor_company": "string",\n'
+            '  "reference_number": "string",\n'
+            '  "amount": number,\n'
+            '  "currency": "string",\n'
+            '  "due_date": "YYYY-MM-DD",\n'
+            '  "priority": "Low" | "Medium" | "High" | "Critical" | "Unknown",\n'
+            '  "ai_summary": "string",\n'
+            '  "required_action": "string",\n'
+            '  "suggested_recipient": "string"\n'
+            "}\n\n"
+            "If a field cannot be determined, return null for it.\n\n"
+            f"Document Text:\n\n{document_text}"
         )
         
         try:
+            logger.info("Sending document text to Gemini AI for analysis")
             response = self.client.models.generate_content(
                 model=self.settings.ai_model,
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
                     response_schema=DocumentAnalysisResult,
-                    temperature=0.1,
+                    temperature=0.0,
                 ),
             )
             
             if not response.text:
-                raise AIServiceError("AI returned an empty response.")
+                raise AIServiceError("Received empty response from AI model.")
                 
             # The response text should be a JSON string matching the schema.
-            # We parse it to ensure it's valid and to enforce the confidence threshold.
+            # We parse it to ensure it's valid.
             result = DocumentAnalysisResult.model_validate_json(response.text)
             
-            # Enforce confidence threshold
-            if result.confidence < self.settings.ai_confidence_threshold:
-                result.requires_human_approval = True
-                
             return result
             
         except ValidationError as exc:

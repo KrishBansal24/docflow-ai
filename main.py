@@ -1,3 +1,4 @@
+from typing import Any
 import logging
 from pathlib import Path
 
@@ -135,6 +136,7 @@ async def upload_document(
                 file_hash=file_hash,
                 existing_document_name=document_result.get("existing_document_name"),
                 existing_document_status=document_result.get("existing_document_status"),
+                existing_decision_status=document_result.get("existing_decision_status"),
             )
 
         return UniqueDocumentResponse(
@@ -146,10 +148,11 @@ async def upload_document(
             text=document_result["extracted_text"],
             character_count=document_result["character_count"],
             file_hash=document_result["file_hash"],
-            needs_human_review=document_result["needs_human_review"],
             text_extraction_method=document_result["text_extraction_method"],
             ocr_used=document_result["ocr_used"],
-            workflow_status=document_result["workflow_status"],
+            processing_status=document_result["processing_status"],
+            decision_status=document_result["decision_status"],
+            approval_decision=document_result["approval_decision"],
             analysis=document_result.get("analysis"),
         )
     except PDFProcessingError as exc:

@@ -55,9 +55,7 @@ class Phase4Tests(unittest.TestCase):
             document_type="Supplier Invoice",
             vendor_or_company="ABC Corp",
             amount=123.00,
-            confidence=0.9,
-            requires_human_approval=False
-        )
+            )
         mock_ai_instance.analyze_document.return_value = fake_analysis
 
         response = self.client.post(
@@ -69,8 +67,7 @@ class Phase4Tests(unittest.TestCase):
         data = response.json()
         self.assertFalse(data["is_duplicate"])
         self.assertEqual(data["document_id"], "fake-page-id")
-        self.assertFalse(data["needs_human_review"])
-        self.assertEqual(data["workflow_status"], "AI Analyzed")
+        self.assertEqual(data["processing_status"], "AI Analyzed")
         self.assertEqual(data["analysis"]["document_type"], "Supplier Invoice")
         self.assertEqual(data["analysis"]["amount"], 123.0)
         
@@ -84,9 +81,7 @@ class Phase4Tests(unittest.TestCase):
         mock_ai_instance = mock_ai_class.return_value
         fake_analysis = DocumentAnalysisResult(
             document_type="Unknown",
-            confidence=0.4,
-            requires_human_approval=True
-        )
+            )
         mock_ai_instance.analyze_document.return_value = fake_analysis
 
         response = self.client.post(
@@ -96,11 +91,10 @@ class Phase4Tests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertTrue(data["needs_human_review"])
-        self.assertEqual(data["workflow_status"], "Needs Human Review")
+        self.assertEqual(data["processing_status"], "AI Analyzed")
         
         self.mock_notion.update_document_analysis.assert_called_once_with(
-            "fake-page-id", fake_analysis, "Needs Human Review"
+            "fake-page-id", fake_analysis, "AI Analyzed"
         )
 
     @patch("services.document_service.AIService")
@@ -115,8 +109,7 @@ class Phase4Tests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertTrue(data["needs_human_review"])
-        self.assertEqual(data["workflow_status"], "AI Analysis Failed")
+        self.assertEqual(data["processing_status"], "AI Analysis Failed")
         self.assertIsNone(data.get("analysis"))
         
         self.mock_notion.update_document_analysis.assert_called_once_with(

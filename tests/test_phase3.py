@@ -15,7 +15,8 @@ DOCUMENT_INBOX_SCHEMA = {
     "properties": {
         "File Hash": {"type": "rich_text"},
         "Document Name": {"type": "title"},
-        "Status": {"type": "status", "status": {"options": [{"name": "Processing"}]}},
+        "Processing Status": {"type": "status", "status": {"options": [{"name": "Processing"}]}},
+        "Decision Status": {"type": "status", "status": {"options": [{"name": "Pending Decision"}]}},
     },
 }
 
@@ -54,7 +55,9 @@ class Phase3Tests(unittest.TestCase):
             "needs_human_review": False,
             "text_extraction_method": "embedded",
             "ocr_used": False,
-            "workflow_status": "AI Analyzed",
+            "processing_status": "AI Analyzed",
+            "decision_status": "Pending Decision",
+            "approval_decision": "Pending Decision",
             "message": "PDF processed successfully",
         }
 
@@ -72,7 +75,7 @@ class Phase3Tests(unittest.TestCase):
             "is_duplicate": True,
             "existing_document_id": "existing-page",
             "existing_document_name": "Prior invoice",
-            "existing_document_status": "Processing",
+            "existing_decision_status": "Processing",
         }
 
         response = self.client.post(
