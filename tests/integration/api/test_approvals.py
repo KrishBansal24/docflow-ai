@@ -7,7 +7,7 @@ from main import app
 from models.approval import ApprovalDecision
 from models.workflow import ProcessingStatus, DecisionStatus
 
-class TestPhase6(unittest.TestCase):
+class TestApprovalsAPI(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)
 

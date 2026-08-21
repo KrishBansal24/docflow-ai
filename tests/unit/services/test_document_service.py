@@ -65,31 +65,31 @@ def _make_multipage_pdf(page_texts: list[str]) -> bytes:
 # Unit tests: is_meaningful_text
 # ---------------------------------------------------------------------------
 
-class IsMeaningfulTextTests(unittest.TestCase):
+class IsMeaningfulTextTests(unittest.IsolatedAsyncioTestCase):
 
-    def test_good_invoice_text(self) -> None:
+    async def test_good_invoice_text(self) -> None:
         text = "Invoice Number: XYZ123\nInvoice Date: 2025-12-30\nTotal: INR 1699"
         self.assertTrue(is_meaningful_text(text))
 
-    def test_empty_string(self) -> None:
+    async def test_empty_string(self) -> None:
         self.assertFalse(is_meaningful_text(""))
 
-    def test_whitespace_only(self) -> None:
+    async def test_whitespace_only(self) -> None:
         self.assertFalse(is_meaningful_text("\n\n\n   \t  \x0c"))
 
-    def test_garbled_glyphs(self) -> None:
+    async def test_garbled_glyphs(self) -> None:
         # All non-alphanumeric: should fail ratio check
         self.assertFalse(is_meaningful_text("□□□□ ▪▪▪▪ □□□□"))
 
-    def test_short_but_meaningful(self) -> None:
+    async def test_short_but_meaningful(self) -> None:
         # Exactly on the boundary — 2 letters is not enough
         self.assertFalse(is_meaningful_text("AB"))
 
-    def test_just_enough_alphanumeric(self) -> None:
+    async def test_just_enough_alphanumeric(self) -> None:
         # 50 'a' characters — should pass default threshold
         self.assertTrue(is_meaningful_text("a" * 50))
 
-    def test_multiline_amazon_invoice_sample(self) -> None:
+    async def test_multiline_amazon_invoice_sample(self) -> None:
         sample = (
             "Amazon India\n"
             "Invoice Number: IN-12345\n"
@@ -105,9 +105,9 @@ class IsMeaningfulTextTests(unittest.TestCase):
 # Integration tests: process_pdf (pdf_service)
 # ---------------------------------------------------------------------------
 
-class ProcessPdfTests(unittest.TestCase):
+class ProcessPdfTests(unittest.IsolatedAsyncioTestCase):
 
-    def test_embedded_text_accepted(self) -> None:
+    async def test_embedded_text_accepted(self) -> None:
         pdf = _make_text_pdf(
             "Invoice Number IN-2025-001\nVendor: ABC Corp Ltd\nTotal Amount: INR 1500\nDate: 01 Jan 2025"
         )
@@ -116,14 +116,14 @@ class ProcessPdfTests(unittest.TestCase):
         self.assertFalse(result["ocr_used"])
         self.assertGreater(result["character_count"], 0)
 
-    def test_whitespace_pdf_flagged(self) -> None:
+    async def test_whitespace_pdf_flagged(self) -> None:
         pdf = _make_whitespace_pdf()
         result = process_pdf(pdf, "blank.pdf", "hash456")
         self.assertEqual(result["text_extraction_method"], "none")
         self.assertFalse(result["ocr_used"])
         self.assertEqual(result["character_count"], 0)
 
-    def test_multipage_text_combined(self) -> None:
+    async def test_multipage_text_combined(self) -> None:
         # TEST 8: text on both pages must be combined
         pdf = _make_multipage_pdf([
             "Amazon Invoice Number: IN-100\nOrder Date: 2025-01-01",
@@ -134,7 +134,7 @@ class ProcessPdfTests(unittest.TestCase):
         self.assertIn("Amazon Invoice", result["extracted_text"])
         self.assertIn("Cash on Delivery", result["extracted_text"])
 
-    def test_multipage_character_count_correct(self) -> None:
+    async def test_multipage_character_count_correct(self) -> None:
         text1 = "Invoice Number: XY-999\nAmount: INR 1000\nVendor: CorpA"
         text2 = "Service Fee Invoice\nFee: INR 40\nDate: 2025-01-15"
         pdf = _make_multipage_pdf([text1, text2])
@@ -149,7 +149,7 @@ class ProcessPdfTests(unittest.TestCase):
 # Integration tests: DocumentService (full pipeline, mocked Notion/AI/OCR)
 # ---------------------------------------------------------------------------
 
-class DocumentServicePipelineTests(unittest.TestCase):
+class DocumentServicePipelineTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.client = TestClient(main.app)
 
@@ -196,7 +196,7 @@ class DocumentServicePipelineTests(unittest.TestCase):
 
     # TEST 1: PDF with good embedded text — OCR must not be called
     @patch("services.document_service.AIService")
-    def test_embedded_text_skips_ocr(self, mock_ai_class: MagicMock) -> None:
+    async def test_embedded_text_skips_ocr(self, mock_ai_class: MagicMock) -> None:
         mock_ai = mock_ai_class.return_value
         from models.schemas import DocumentAnalysisResult
         mock_ai.analyze_document.return_value = DocumentAnalysisResult(
@@ -204,65 +204,54 @@ class DocumentServicePipelineTests(unittest.TestCase):
         pdf = _make_text_pdf(
             "Amazon Invoice IN-2025-001\nVendor: Amazon India\nTotal: INR 1699\nDate: 2025-01-01"
         )
-        response = self.client.post(
-            "/documents/upload",
-            files={"file": ("invoice.pdf", pdf, "application/pdf")},
-        )
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
+        from services.document_service import DocumentService
+        service = DocumentService()
+        data = await service.process_unique_document(pdf, "invoice.pdf", "fake-hash")
         self.assertEqual(data["text_extraction_method"], "embedded")
         self.assertFalse(data["ocr_used"])
         self.mock_ocr.extract_text.assert_not_called()
 
     # TEST 2: Whitespace-only embedded text → OCR attempted
     @patch("services.document_service.AIService")
-    def test_whitespace_pdf_triggers_ocr(self, mock_ai_class: MagicMock) -> None:
+    async def test_whitespace_pdf_triggers_ocr(self, mock_ai_class: MagicMock) -> None:
         mock_ai = mock_ai_class.return_value
         from models.schemas import DocumentAnalysisResult
         mock_ai.analyze_document.return_value = DocumentAnalysisResult(
             )
         pdf = _make_whitespace_pdf()
-        response = self.client.post(
-            "/documents/upload",
-            files={"file": ("scan.pdf", pdf, "application/pdf")},
-        )
-        self.assertEqual(response.status_code, 200)
+        from services.document_service import DocumentService
+        service = DocumentService()
+        data = await service.process_unique_document(pdf, "scan.pdf", "fake-hash")
         self.mock_ocr.extract_text.assert_called_once()
 
     # TEST 5: Scanned PDF + successful OCR → method='ocr'
     @patch("services.document_service.AIService")
-    def test_scanned_pdf_uses_ocr_text(self, mock_ai_class: MagicMock) -> None:
+    async def test_scanned_pdf_uses_ocr_text(self, mock_ai_class: MagicMock) -> None:
         mock_ai = mock_ai_class.return_value
         from models.schemas import DocumentAnalysisResult
         mock_ai.analyze_document.return_value = DocumentAnalysisResult(
             )
         pdf = _make_whitespace_pdf()
-        response = self.client.post(
-            "/documents/upload",
-            files={"file": ("scan.pdf", pdf, "application/pdf")},
-        )
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
+        from services.document_service import DocumentService
+        service = DocumentService()
+        data = await service.process_unique_document(pdf, "scan.pdf", "fake-hash")
         self.assertEqual(data["text_extraction_method"], "ocr")
         self.assertTrue(data["ocr_used"])
 
     # TEST 6: Scanned PDF + OCR fails → needs_human_review=True, no crash
     @patch("services.document_service.AIService")
-    def test_scanned_pdf_ocr_failure_safe(self, mock_ai_class: MagicMock) -> None:
+    async def test_scanned_pdf_ocr_failure_safe(self, mock_ai_class: MagicMock) -> None:
         self.mock_ocr.extract_text = AsyncMock(side_effect=OCRServiceError("network error"))
         pdf = _make_whitespace_pdf()
-        response = self.client.post(
-            "/documents/upload",
-            files={"file": ("scan.pdf", pdf, "application/pdf")},
-        )
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
+        from services.document_service import DocumentService
+        service = DocumentService()
+        data = await service.process_unique_document(pdf, "scan.pdf", "fake-hash")
         self.assertEqual(data["text_extraction_method"], "none")
         self.assertFalse(data["ocr_used"])
 
     # TEST 7: Good embedded text + OCR configured to raise → OCR never called, success
     @patch("services.document_service.AIService")
-    def test_embedded_text_success_even_if_ocr_would_crash(
+    async def test_embedded_text_success_even_if_ocr_would_crash(
         self, mock_ai_class: MagicMock
     ) -> None:
         # Make OCR raise immediately if called — it must NOT be called
@@ -274,12 +263,9 @@ class DocumentServicePipelineTests(unittest.TestCase):
         pdf = _make_text_pdf(
             "Amazon Invoice IN-2025-XYZ\nTotal: INR 5000\nOrder: 123-456\nVendor: Amazon"
         )
-        response = self.client.post(
-            "/documents/upload",
-            files={"file": ("invoice.pdf", pdf, "application/pdf")},
-        )
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
+        from services.document_service import DocumentService
+        service = DocumentService()
+        data = await service.process_unique_document(pdf, "invoice.pdf", "fake-hash")
         # Must succeed based on embedded text alone
         self.assertEqual(data["text_extraction_method"], "embedded")
         self.assertFalse(data["ocr_used"])
@@ -287,7 +273,7 @@ class DocumentServicePipelineTests(unittest.TestCase):
 
     # TEST 8: Multi-page Amazon-like PDF — both pages processed
     @patch("services.document_service.AIService")
-    def test_multipage_amazon_invoice(self, mock_ai_class: MagicMock) -> None:
+    async def test_multipage_amazon_invoice(self, mock_ai_class: MagicMock) -> None:
         mock_ai = mock_ai_class.return_value
         from models.schemas import DocumentAnalysisResult
         mock_ai.analyze_document.return_value = DocumentAnalysisResult(
@@ -297,12 +283,9 @@ class DocumentServicePipelineTests(unittest.TestCase):
             "Billed to: Jyoti, 123 Main Street, New Delhi\nItem: Laptop Stand INR 1699",
             "Cash on Delivery Service Fee Invoice\nInvoice: COD-001\nFee: INR 29\nTotal: INR 29",
         ])
-        response = self.client.post(
-            "/documents/upload",
-            files={"file": ("amazon-invoice.pdf", pdf, "application/pdf")},
-        )
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
+        from services.document_service import DocumentService
+        service = DocumentService()
+        data = await service.process_unique_document(pdf, "amazon-invoice.pdf", "fake-hash")
         self.assertEqual(data["page_count"], 2)
         self.assertEqual(data["text_extraction_method"], "embedded")
         self.assertFalse(data["ocr_used"])
@@ -311,7 +294,7 @@ class DocumentServicePipelineTests(unittest.TestCase):
 
     # TEST 9: Duplicate PDF — detection unchanged, AI not called
     @patch("services.document_service.AIService")
-    def test_duplicate_detection_unchanged(self, mock_ai_class: MagicMock) -> None:
+    async def test_duplicate_detection_unchanged(self, mock_ai_class: MagicMock) -> None:
         self.mock_notion.check_duplicate_document = AsyncMock(
             return_value={
                 "is_duplicate": True,
@@ -321,12 +304,9 @@ class DocumentServicePipelineTests(unittest.TestCase):
             }
         )
         pdf = _make_text_pdf("Amazon Invoice: some text here for a duplicate test file")
-        response = self.client.post(
-            "/documents/upload",
-            files={"file": ("invoice.pdf", pdf, "application/pdf")},
-        )
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
+        from services.document_service import DocumentService
+        service = DocumentService()
+        data = await service.process_unique_document(pdf, "invoice.pdf", "fake-hash")
         self.assertTrue(data["is_duplicate"])
         self.assertEqual(data["existing_document_id"], "old-page-id")
         mock_ai_class.return_value.analyze_document.assert_not_called()

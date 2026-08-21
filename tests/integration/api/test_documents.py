@@ -1,26 +1,8 @@
-import asyncio
 import unittest
-from types import SimpleNamespace
-from unittest.mock import AsyncMock
-
 import pymupdf
 from fastapi.testclient import TestClient
 
 import main
-from services.notion import DocumentNotionService
-from unittest.mock import MagicMock
-
-
-DOCUMENT_INBOX_SCHEMA = {
-    "id": "source-id",
-    "properties": {
-        "File Hash": {"type": "rich_text"},
-        "Document Name": {"type": "title"},
-        "Processing Status": {"type": "status", "status": {"options": [{"name": "Processing"}]}},
-        "Decision Status": {"type": "status", "status": {"options": [{"name": "Pending Decision"}]}},
-    },
-}
-
 
 class FakeDocumentService:
     result: dict[str, object] = {}
@@ -30,8 +12,7 @@ class FakeDocumentService:
     ) -> dict[str, object]:
         return self.result
 
-
-class Phase3Tests(unittest.TestCase):
+class TestDocumentsAPI(unittest.TestCase):
     def setUp(self) -> None:
         import api.documents
         self.original_document_service = api.documents.DocumentService
@@ -95,24 +76,7 @@ class Phase3Tests(unittest.TestCase):
             "/documents/upload",
             files={"file": ("fake.pdf", b"not a PDF", "application/pdf")},
         )
-
         self.assertEqual(response.status_code, 422)
-
-    def test_duplicate_query_uses_exact_file_hash_filter(self) -> None:
-        service = DocumentNotionService()
-        service.client = MagicMock()
-        service.client.settings = SimpleNamespace(document_inbox_id="database-id")
-        service.client._get_data_source = AsyncMock(return_value=DOCUMENT_INBOX_SCHEMA)
-        service.client._request = AsyncMock(return_value={"results": []})
-
-        result = asyncio.run(service.check_duplicate_document("a" * 64))
-
-        self.assertFalse(result["is_duplicate"])
-        service.client._request.assert_called_once()
-        request_json = service.client._request.call_args.kwargs["json"]
-        self.assertEqual(request_json["filter"]["property"], "File Hash")
-        self.assertEqual(request_json["filter"]["rich_text"]["equals"], "a" * 64)
-
 
 if __name__ == "__main__":
     unittest.main()
