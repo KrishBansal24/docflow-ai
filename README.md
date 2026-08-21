@@ -70,10 +70,9 @@ PyMuPDF extracts any readable text and the backend returns the filename, page co
 
 After validation, the backend queries DOCUMENT INBOX for an exact match on its `File Hash` rich-text property. A matching hash returns the existing Notion page information and stops further extraction or record creation. For a unique hash, the backend extracts the PDF content and creates one DOCUMENT INBOX record with `Document Name`, `File Hash`, and the existing `Processing` status.
 
-### 5. AI document understanding — planned
+### 5. AI document understanding — implemented
 
-AI will eventually interpret extracted text and return structured information such as document type, vendor/company, amount, reference number, due date, priority, and suggested action.
-
+AI (via Google GenAI) interprets extracted text and returns structured information such as document type, vendor/company, amount, reference number, due date, priority, and suggested action. Low confidence results or errors are flagged for human review.
 ### 6. Notion workflow — partially implemented
 
 The backend can verify access to the connected Notion databases, create a manual test record in **DOCUMENT INBOX**, and now automatically creates one Document Inbox record for each unique uploaded PDF. The current Phase 3 record stores the document filename, SHA-256 `File Hash`, and `Processing` status. It does not yet save AI results or create downstream approval workflows.
@@ -150,9 +149,15 @@ Readable text extraction
     ↓
 Page count and character count
     ↓
-Create one DOCUMENT INBOX record
+Create one DOCUMENT INBOX record (Status: Processing)
     ↓
-JSON API response
+Text Available?
+   Yes: AI Analysis
+        ↓
+      Pydantic Validation (Update Notion to "AI Analyzed" or "Needs Human Review")
+   No: Flag for human review
+    ↓
+JSON API response (with structured analysis if successful)
 ```
 
 For an image-only or scanned PDF:
@@ -169,10 +174,12 @@ Valid PDF → No readable text → needs_human_review = true → OCR may be requ
 
 **Phase 3: Completed** — Notion-backed SHA-256 duplicate detection and unique-document persistence.
 
+**Phase 4: Completed** — AI Document Analysis for structured data extraction.
+
 The project currently supports:
 
 - FastAPI backend and Swagger documentation
-- Environment-based configuration
+- Environment-based configuration (including AI settings)
 - Notion API connection checks for DOCUMENT INBOX, APPROVAL QUEUE, and RUN LOG
 - Creation of a manual test record in DOCUMENT INBOX
 - PDF upload and validation
@@ -181,9 +188,12 @@ The project currently supports:
 - SHA-256 file hashing
 - Exact SHA-256 duplicate detection against DOCUMENT INBOX
 - Automatic Document Inbox records for unique uploads (`Document Name`, `File Hash`, `Processing`)
+- AI Document Analysis using Google GenAI (extracts vendor, amount, dates, action items, etc.)
+- Strict Pydantic validation for AI outputs
+- Configurable AI confidence thresholds and fallback routing
 - Basic, human-readable API error handling
 
-The project does **not** yet implement AI analysis, duplicate recovery across multiple backend instances, automatic approval workflows, approval detection, email actions, automated Run Log entries, or deployment.
+The project does **not** yet implement duplicate recovery across multiple backend instances, automatic approval workflows, approval detection, email actions, automated Run Log entries, or deployment.
 
 ## ✨ Features
 
@@ -386,7 +396,7 @@ Also test a `.txt` file renamed to `.pdf`, an empty `.pdf`, a corrupted PDF, and
 - ✅ **Phase 1 — Notion Integration:** Completed
 - ✅ **Phase 2 — PDF Upload and Text Extraction:** Completed
 - ✅ **Phase 3 — Duplicate Detection:** Completed
-- ⏳ **Phase 4 — AI Document Analysis:** Planned
+- ✅ **Phase 4 — AI Document Analysis:** Completed
 - ⏳ **Phase 5 — Notion Document Workflow:** Planned
 - ⏳ **Phase 6 — Human Approval Queue:** Planned
 - ⏳ **Phase 7 — Automatic Approval Detection:** Planned

@@ -147,6 +147,9 @@ async def upload_document(
             character_count=document_result["character_count"],
             file_hash=document_result["file_hash"],
             needs_human_review=document_result["needs_human_review"],
+            text_extraction_method=document_result["text_extraction_method"],
+            ocr_used=document_result["ocr_used"],
+            analysis=document_result.get("analysis"),
         )
     except PDFProcessingError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc

@@ -52,6 +52,8 @@ class Phase3Tests(unittest.TestCase):
             "character_count": 19,
             "file_hash": "a" * 64,
             "needs_human_review": False,
+            "text_extraction_method": "embedded",
+            "ocr_used": False,
             "message": "PDF processed successfully",
         }
 

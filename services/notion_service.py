@@ -198,3 +198,58 @@ class NotionService:
             },
         }
         return await self._request("POST", "/pages", json=payload)
+
+    async def update_document_analysis(self, page_id: str, analysis_result: Any | None, status_name: str) -> dict[str, Any]:
+        """Update an existing Notion page with AI analysis results safely."""
+        document_source = await self._get_data_source(self.settings.document_inbox_id or "")
+        properties_schema = document_source.get("properties", {})
+        
+        properties_payload: dict[str, Any] = {}
+        
+        # Always update status if possible
+        if STATUS_PROPERTY in properties_schema:
+            properties_payload[STATUS_PROPERTY] = {"status": {"name": status_name}}
+            
+        if analysis_result:
+            if "Document Type" in properties_schema and properties_schema["Document Type"].get("type") == "select" and analysis_result.document_type:
+                properties_payload["Document Type"] = {"select": {"name": analysis_result.document_type}}
+            
+            if "Vendor" in properties_schema and properties_schema["Vendor"].get("type") == "rich_text" and analysis_result.vendor_or_company:
+                properties_payload["Vendor"] = {"rich_text": [{"text": {"content": analysis_result.vendor_or_company}}]}
+                
+            if "Reference Number" in properties_schema and properties_schema["Reference Number"].get("type") == "rich_text" and analysis_result.reference_number:
+                properties_payload["Reference Number"] = {"rich_text": [{"text": {"content": analysis_result.reference_number}}]}
+                
+            if "Amount" in properties_schema and properties_schema["Amount"].get("type") == "number" and analysis_result.amount is not None:
+                properties_payload["Amount"] = {"number": analysis_result.amount}
+                
+            if "Currency" in properties_schema and properties_schema["Currency"].get("type") == "select" and analysis_result.currency:
+                properties_payload["Currency"] = {"select": {"name": analysis_result.currency}}
+                
+            if "Due Date" in properties_schema and properties_schema["Due Date"].get("type") == "date" and analysis_result.due_date:
+                properties_payload["Due Date"] = {"date": {"start": analysis_result.due_date}}
+                
+            if "Priority" in properties_schema and properties_schema["Priority"].get("type") == "select" and analysis_result.priority:
+                properties_payload["Priority"] = {"select": {"name": analysis_result.priority}}
+                
+            if "AI Summary" in properties_schema and properties_schema["AI Summary"].get("type") == "rich_text" and analysis_result.short_summary:
+                properties_payload["AI Summary"] = {"rich_text": [{"text": {"content": analysis_result.short_summary}}]}
+                
+            if "Required Action" in properties_schema and properties_schema["Required Action"].get("type") == "rich_text" and analysis_result.required_action:
+                properties_payload["Required Action"] = {"rich_text": [{"text": {"content": analysis_result.required_action}}]}
+                
+            if "Suggested Recipient" in properties_schema and properties_schema["Suggested Recipient"].get("type") == "rich_text" and analysis_result.suggested_recipient:
+                properties_payload["Suggested Recipient"] = {"rich_text": [{"text": {"content": analysis_result.suggested_recipient}}]}
+                
+            if "AI Confidence" in properties_schema and properties_schema["AI Confidence"].get("type") == "number" and analysis_result.confidence is not None:
+                properties_payload["AI Confidence"] = {"number": analysis_result.confidence}
+                
+            if "Human Approval Required" in properties_schema and properties_schema["Human Approval Required"].get("type") == "checkbox" and analysis_result.requires_human_approval is not None:
+                properties_payload["Human Approval Required"] = {"checkbox": analysis_result.requires_human_approval}
+                
+        if not properties_payload:
+            return {}
+            
+        payload = {"properties": properties_payload}
+        return await self._request("PATCH", f"/pages/{page_id}", json=payload)
+
