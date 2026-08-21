@@ -13,19 +13,41 @@ class PDFProcessingError(Exception):
     """A safe, user-facing error raised when a PDF cannot be processed."""
 
 
+def _open_valid_pdf(file_bytes: bytes, filename: str) -> pymupdf.Document:
+    """Open and validate a PDF, returning an open document to the caller."""
+    try:
+        document = pymupdf.open(stream=file_bytes, filetype="pdf")
+        if not document.is_pdf:
+            document.close()
+            raise PDFProcessingError("The uploaded file is not a valid PDF.")
+        if document.needs_pass:
+            document.close()
+            raise PDFProcessingError("The PDF is password-protected and cannot be processed.")
+        return document
+    except PDFProcessingError:
+        raise
+    except Exception as exc:
+        logger.warning("PDF validation failed for %s: %s", filename, type(exc).__name__)
+        raise PDFProcessingError(
+            "The uploaded file could not be opened as a valid PDF."
+        ) from exc
+
+
+def validate_pdf(file_bytes: bytes, filename: str) -> None:
+    """Verify that bytes represent an accessible PDF without extracting text."""
+    document = _open_valid_pdf(file_bytes, filename)
+    document.close()
+
+
 def process_pdf(file_bytes: bytes, filename: str, file_hash: str | None = None) -> dict[str, Any]:
-    """Open a PDF in memory and return its basic extracted information.
+    """Extract readable text and metadata from a previously validated PDF.
 
     PyMuPDF is used as the final validation step, so a file merely named
     ``.pdf`` is rejected when it is not an actual readable PDF document.
     """
     document: pymupdf.Document | None = None
     try:
-        document = pymupdf.open(stream=file_bytes, filetype="pdf")
-        if not document.is_pdf:
-            raise PDFProcessingError("The uploaded file is not a valid PDF.")
-        if document.needs_pass:
-            raise PDFProcessingError("The PDF is password-protected and cannot be processed.")
+        document = _open_valid_pdf(file_bytes, filename)
 
         extracted_text = "\n".join(page.get_text("text") for page in document)
         character_count = len(extracted_text)

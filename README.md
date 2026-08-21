@@ -2,7 +2,7 @@
 
 DocFlow AI is an AI-powered document-to-action automation system for small businesses. It is being built to turn business PDFs from files that someone must remember to read into structured, traceable workflows that can move toward the right action.
 
-Today, the project has a working FastAPI foundation, a verified Notion connection, and a safe PDF upload and text-extraction pipeline. The AI, approval, and external-action stages described below are the product vision—not claims about functionality that exists today.
+Today, the project has a working FastAPI foundation, a verified Notion connection, a safe PDF upload and text-extraction pipeline, and Notion-backed SHA-256 duplicate detection. The AI, approval, and external-action stages described below are the product vision—not claims about functionality that exists today.
 
 ## 🚀 Project Overview
 
@@ -66,17 +66,17 @@ The backend checks that a file was supplied, has a `.pdf` extension, has an acce
 
 PyMuPDF extracts any readable text and the backend returns the filename, page count, character count, and SHA-256 hash. A valid image-only/scanned PDF is accepted, but is flagged with `needs_human_review: true` because OCR is not part of the current implementation.
 
-### 4. Duplicate detection — planned
+### 4. Duplicate detection — implemented
 
-The SHA-256 hash generated today will later be used to detect whether the same document has already been processed. No duplicate lookup or blocking is implemented yet.
+After validation, the backend queries DOCUMENT INBOX for an exact match on its `File Hash` rich-text property. A matching hash returns the existing Notion page information and stops further extraction or record creation. For a unique hash, the backend extracts the PDF content and creates one DOCUMENT INBOX record with `Document Name`, `File Hash`, and the existing `Processing` status.
 
 ### 5. AI document understanding — planned
 
 AI will eventually interpret extracted text and return structured information such as document type, vendor/company, amount, reference number, due date, priority, and suggested action.
 
-### 6. Notion workflow — planned beyond the Phase 1 connection
+### 6. Notion workflow — partially implemented
 
-The backend can currently verify access to the connected Notion databases and create a manual test record in **DOCUMENT INBOX**. It does **not** yet save uploaded PDFs or processed results there automatically.
+The backend can verify access to the connected Notion databases, create a manual test record in **DOCUMENT INBOX**, and now automatically creates one Document Inbox record for each unique uploaded PDF. The current Phase 3 record stores the document filename, SHA-256 `File Hash`, and `Processing` status. It does not yet save AI results or create downstream approval workflows.
 
 The planned Notion workspace will let people view processed documents, understand AI recommendations, review pending actions, approve or reject decisions, and inspect workflow history.
 
@@ -140,9 +140,17 @@ PDF verification with PyMuPDF
     ↓
 SHA-256 hash generation
     ↓
+Notion File Hash duplicate check
+    ↓
+Duplicate: return existing document information and stop
+    ↓
+Unique: continue processing
+    ↓
 Readable text extraction
     ↓
 Page count and character count
+    ↓
+Create one DOCUMENT INBOX record
     ↓
 JSON API response
 ```
@@ -159,6 +167,8 @@ Valid PDF → No readable text → needs_human_review = true → OCR may be requ
 
 **Phase 2: Completed** — PDF upload, validation, hashing, and text extraction.
 
+**Phase 3: Completed** — Notion-backed SHA-256 duplicate detection and unique-document persistence.
+
 The project currently supports:
 
 - FastAPI backend and Swagger documentation
@@ -169,9 +179,11 @@ The project currently supports:
 - Text extraction with PyMuPDF
 - Page and character counts
 - SHA-256 file hashing
+- Exact SHA-256 duplicate detection against DOCUMENT INBOX
+- Automatic Document Inbox records for unique uploads (`Document Name`, `File Hash`, `Processing`)
 - Basic, human-readable API error handling
 
-The project does **not** yet implement AI analysis, a duplicate-detection workflow, automatic Notion document creation from uploads, approval automation, approval detection, email actions, automated Run Log entries, or deployment.
+The project does **not** yet implement AI analysis, duplicate recovery across multiple backend instances, automatic approval workflows, approval detection, email actions, automated Run Log entries, or deployment.
 
 ## ✨ Features
 
@@ -180,16 +192,15 @@ The project does **not** yet implement AI analysis, a duplicate-detection workfl
 - `GET /health` service health check
 - `GET /notion/test` Notion connectivity check
 - `POST /documents/test` test record creation in DOCUMENT INBOX
-- `POST /documents/upload` in-memory PDF processing
+- `POST /documents/upload` PDF processing with Notion-backed duplicate prevention
 - Configurable upload limit (10 MB by default)
 - Rejection of empty, oversized, unsupported, corrupted, fake, and password-protected PDFs
 - OCR/human-review flag for valid PDFs with no readable text
+- One Document Inbox record for each unique file hash
 
 ### Planned features
 
-- Hash-based duplicate detection
 - AI extraction of document metadata and recommended actions
-- Automatic storage of processed uploads in Notion
 - Notion Approval Queue workflow
 - Automatic approval/rejection detection
 - External email notifications and actions
@@ -225,8 +236,11 @@ docflow-ai/
 │   └── schemas.py           # Pydantic API response models
 ├── services/
 │   ├── __init__.py
-│   ├── notion_service.py    # Notion API connection and test-record logic
+│   ├── document_service.py  # Serializes duplicate check, extraction, and record creation
+│   ├── notion_service.py    # Notion API queries and Document Inbox persistence
 │   └── pdf_service.py       # PDF processing and safe text extraction
+├── tests/
+│   └── test_phase3.py       # Local mocked Phase 3 tests
 └── utils/
     ├── __init__.py
     └── hashing.py           # SHA-256 file-hash utility
@@ -319,23 +333,38 @@ Creates a simple **DocFlow AI - Test Document** record in DOCUMENT INBOX. This i
 
 ### `POST /documents/upload`
 
-Accepts a multipart form upload with one `file` field. The file must be a PDF and may not exceed the configured limit. The backend processes it entirely in memory.
+Accepts a multipart form upload with one `file` field. The file must be a PDF and may not exceed the configured limit. The backend validates it, calculates a SHA-256 hash, and queries DOCUMENT INBOX's `File Hash` rich-text property before extracting text.
 
-Successful readable-PDF response:
+For a unique PDF, the backend stores `Document Name`, `File Hash`, and the existing `Processing` status in DOCUMENT INBOX, then returns:
 
 ```json
 {
+  "is_duplicate": false,
+  "message": "New document processed successfully.",
+  "document_id": "notion_page_id",
   "filename": "invoice.pdf",
   "page_count": 2,
   "text": "Extracted PDF text goes here",
   "character_count": 1540,
   "file_hash": "sha256_hash_here",
-  "needs_human_review": false,
-  "message": "PDF processed successfully"
+  "needs_human_review": false
 }
 ```
 
-A valid scanned PDF with no readable text returns HTTP 200 with `text` set to `""`, `character_count` set to `0`, and `needs_human_review` set to `true`. Empty uploads return 400; unsupported extensions or content types return 415; invalid/corrupted/password-protected PDFs return 422; files exceeding the limit return 413.
+For a duplicate PDF, the backend creates no new record and returns:
+
+```json
+{
+  "is_duplicate": true,
+  "message": "This document has already been processed.",
+  "existing_document_id": "notion_page_id",
+  "existing_document_name": "invoice.pdf",
+  "existing_document_status": "Processing",
+  "file_hash": "sha256_hash_here"
+}
+```
+
+A valid scanned PDF with no readable text is still stored when unique and returns HTTP 200 with `text` set to `""`, `character_count` set to `0`, and `needs_human_review` set to `true`. Empty uploads return 400; unsupported extensions or content types return 415; invalid/corrupted/password-protected PDFs return 422; files exceeding the limit return 413. A Notion duplicate-check or create failure returns 502 and blocks further processing.
 
 ## 🧪 Testing
 
@@ -348,13 +377,15 @@ Use Swagger UI at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs):
 5. Test `POST /documents/test` and check that the test record appears in DOCUMENT INBOX.
 6. Find `POST /documents/upload`, select **Try it out**, choose a PDF, and select **Execute**.
 
-For Phase 2, test a readable invoice, utility bill, and vendor quotation. Also test a `.txt` file renamed to `.pdf`, an empty `.pdf`, a corrupted PDF, and a scanned/image-only PDF. The expected success and error behavior is described in the upload-endpoint section above.
+For Phase 3, upload one valid PDF and confirm `is_duplicate` is `false` and exactly one Document Inbox record was created with `File Hash` and `Processing`. Upload the exact same file again: expect `is_duplicate` to be `true` and no new Notion record. Upload a different file: expect a new record. Rename an identical copy of the first PDF: it must still be detected as a duplicate because matching is based on bytes, not filename.
+
+Also test a `.txt` file renamed to `.pdf`, an empty `.pdf`, a corrupted PDF, and a scanned/image-only PDF. A unique scanned PDF should create one record with `needs_human_review: true`; its second upload should return the duplicate response.
 
 ## 🗺️ Development Roadmap
 
 - ✅ **Phase 1 — Notion Integration:** Completed
 - ✅ **Phase 2 — PDF Upload and Text Extraction:** Completed
-- ⏳ **Phase 3 — Duplicate Detection:** Planned
+- ✅ **Phase 3 — Duplicate Detection:** Completed
 - ⏳ **Phase 4 — AI Document Analysis:** Planned
 - ⏳ **Phase 5 — Notion Document Workflow:** Planned
 - ⏳ **Phase 6 — Human Approval Queue:** Planned

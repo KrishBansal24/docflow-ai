@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -19,11 +21,22 @@ class TestDocumentResponse(BaseModel):
     page_url: str | None = None
 
 
-class DocumentUploadResponse(BaseModel):
+class UniqueDocumentResponse(BaseModel):
+    is_duplicate: Literal[False]
+    message: str
+    document_id: str
     filename: str
     page_count: int
     text: str
     character_count: int
     file_hash: str
     needs_human_review: bool
+
+
+class DuplicateDocumentResponse(BaseModel):
+    is_duplicate: Literal[True]
     message: str
+    existing_document_id: str
+    file_hash: str
+    existing_document_name: str | None = None
+    existing_document_status: str | None = None

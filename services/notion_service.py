@@ -8,6 +8,10 @@ from config import get_settings
 NOTION_API_URL = "https://api.notion.com/v1"
 # Current stable Notion API version at the time this project was created.
 NOTION_API_VERSION = "2026-03-11"
+FILE_HASH_PROPERTY = "File Hash"
+DOCUMENT_NAME_PROPERTY = "Document Name"
+STATUS_PROPERTY = "Status"
+INITIAL_DOCUMENT_STATUS = "Processing"
 
 
 class NotionServiceError(Exception):
@@ -103,6 +107,94 @@ class NotionService:
                 title_property: {
                     "title": [{"text": {"content": "DocFlow AI - Test Document"}}]
                 }
+            },
+        }
+        return await self._request("POST", "/pages", json=payload)
+
+    @staticmethod
+    def _read_plain_text(property_value: dict[str, Any], value_type: str) -> str | None:
+        """Return a human-readable Notion title or rich-text value, if present."""
+        fragments = property_value.get(value_type, [])
+        if not isinstance(fragments, list):
+            return None
+        text = "".join(fragment.get("plain_text", "") for fragment in fragments)
+        return text or None
+
+    def _validate_document_inbox_schema(self, data_source: dict[str, Any]) -> None:
+        """Ensure Phase 3 relies only on verified, compatible Notion properties."""
+        properties = data_source.get("properties", {})
+        required_types = {
+            FILE_HASH_PROPERTY: "rich_text",
+            DOCUMENT_NAME_PROPERTY: "title",
+            STATUS_PROPERTY: "status",
+        }
+        missing_or_invalid = [
+            f"{name} ({property_type})"
+            for name, property_type in required_types.items()
+            if properties.get(name, {}).get("type") != property_type
+        ]
+        if missing_or_invalid:
+            raise NotionServiceError(
+                "DOCUMENT INBOX is missing required Phase 3 properties: "
+                + ", ".join(missing_or_invalid)
+                + ". Add 'File Hash' as Rich Text, 'Document Name' as Title, and 'Status' as Status."
+            )
+
+        status_options = properties[STATUS_PROPERTY].get("status", {}).get("options", [])
+        if INITIAL_DOCUMENT_STATUS not in {option.get("name") for option in status_options}:
+            raise NotionServiceError(
+                f"DOCUMENT INBOX Status needs an '{INITIAL_DOCUMENT_STATUS}' option for Phase 3."
+            )
+
+    async def check_duplicate_document(self, file_hash: str) -> dict[str, Any]:
+        """Find a Document Inbox page with an exactly matching SHA-256 hash."""
+        document_source = await self._get_data_source(self.settings.document_inbox_id or "")
+        self._validate_document_inbox_schema(document_source)
+        response = await self._request(
+            "POST",
+            f"/data_sources/{document_source['id']}/query",
+            json={
+                "page_size": 1,
+                "filter": {
+                    "property": FILE_HASH_PROPERTY,
+                    "rich_text": {"equals": file_hash},
+                },
+            },
+        )
+        results = response.get("results")
+        if not isinstance(results, list):
+            raise NotionServiceError("Notion returned an unexpected duplicate-check response.")
+        if not results:
+            return {"is_duplicate": False}
+
+        existing_page = results[0]
+        properties = existing_page.get("properties", {})
+        status_value = properties.get(STATUS_PROPERTY, {}).get("status")
+        return {
+            "is_duplicate": True,
+            "existing_document_id": existing_page.get("id"),
+            "existing_document_name": self._read_plain_text(
+                properties.get(DOCUMENT_NAME_PROPERTY, {}), "title"
+            ),
+            "existing_document_status": (
+                status_value.get("name") if isinstance(status_value, dict) else None
+            ),
+        }
+
+    async def create_processed_document(self, filename: str, file_hash: str) -> dict[str, Any]:
+        """Create the one Document Inbox record used for future hash lookups."""
+        document_source = await self._get_data_source(self.settings.document_inbox_id or "")
+        self._validate_document_inbox_schema(document_source)
+        payload = {
+            "parent": {"type": "data_source_id", "data_source_id": document_source["id"]},
+            "properties": {
+                DOCUMENT_NAME_PROPERTY: {
+                    "title": [{"text": {"content": filename}}],
+                },
+                FILE_HASH_PROPERTY: {
+                    "rich_text": [{"text": {"content": file_hash}}],
+                },
+                STATUS_PROPERTY: {"status": {"name": INITIAL_DOCUMENT_STATUS}},
             },
         }
         return await self._request("POST", "/pages", json=payload)
