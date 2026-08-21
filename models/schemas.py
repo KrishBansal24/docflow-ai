@@ -53,6 +53,25 @@ class UniqueDocumentResponse(BaseModel):
     analysis: DocumentAnalysisResult | None = None
 
 
+class ApprovalDecisionRequest(BaseModel):
+    decision: str
+    reviewer_notes: str | None = None
+
+
+class ApprovalQueueItem(BaseModel):
+    approval_id: str
+    document_id: str
+    document_name: str | None = None
+    status: str
+    reason: str | None = None
+    created_at: str | None = None
+
+
+class ApprovalListResponse(BaseModel):
+    approvals: list[ApprovalQueueItem]
+
+
+
 class DuplicateDocumentResponse(BaseModel):
     is_duplicate: Literal[True]
     message: str

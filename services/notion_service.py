@@ -5,6 +5,7 @@ import httpx
 
 from config import get_settings
 from models.workflow import DocumentStatus
+from models.approval import ApprovalStatus
 
 
 logger = logging.getLogger(__name__)
@@ -15,6 +16,15 @@ NOTION_API_VERSION = "2026-03-11"
 FILE_HASH_PROPERTY = "File Hash"
 DOCUMENT_NAME_PROPERTY = "Document Name"
 STATUS_PROPERTY = "Status"
+
+# Approval Queue Properties
+APPROVAL_NAME_PROPERTY = "Approval Name"
+DOCUMENT_RELATION_PROPERTY = "Document"
+APPROVAL_STATUS_PROPERTY = "Approval Status"
+REASON_PROPERTY = "Reason for Review"
+REVIEWER_NOTES_PROPERTY = "Reviewer Notes"
+CREATED_AT_PROPERTY = "Created At"
+DECISION_DATE_PROPERTY = "Decision Date"
 
 
 class NotionServiceError(Exception):
@@ -158,6 +168,37 @@ class NotionService:
                     status.value,
                 )
 
+    def _validate_approval_queue_schema(self, data_source: dict[str, Any]) -> None:
+        """Ensure the APPROVAL QUEUE has required properties and statuses."""
+        properties = data_source.get("properties", {})
+        required_types = {
+            APPROVAL_NAME_PROPERTY: "title",
+            DOCUMENT_RELATION_PROPERTY: "relation",
+            APPROVAL_STATUS_PROPERTY: "status",
+        }
+        missing_or_invalid = [
+            f"{name} ({property_type})"
+            for name, property_type in required_types.items()
+            if properties.get(name, {}).get("type") != property_type
+        ]
+        if missing_or_invalid:
+            raise NotionServiceError(
+                "APPROVAL QUEUE is missing required properties: "
+                + ", ".join(missing_or_invalid)
+            )
+
+        available_options = {
+            option.get("name")
+            for option in properties[APPROVAL_STATUS_PROPERTY].get("status", {}).get("options", [])
+        }
+        for status in ApprovalStatus:
+            if status.value not in available_options:
+                logger.warning(
+                    "[WORKFLOW] Notion Approval Status option '%s' not found in APPROVAL QUEUE. "
+                    "It will be created automatically on first use.",
+                    status.value,
+                )
+
     async def check_duplicate_document(self, file_hash: str) -> dict[str, Any]:
         """Find a Document Inbox page with an exactly matching SHA-256 hash."""
         document_source = await self._get_data_source(self.settings.document_inbox_id or "")
@@ -264,4 +305,125 @@ class NotionService:
             
         payload = {"properties": properties_payload}
         return await self._request("PATCH", f"/pages/{page_id}", json=payload)
+
+    async def update_document_status_only(self, page_id: str, status_name: str) -> dict[str, Any]:
+        """Update just the status of a DOCUMENT INBOX page."""
+        payload = {
+            "properties": {
+                STATUS_PROPERTY: {"status": {"name": status_name}}
+            }
+        }
+        return await self._request("PATCH", f"/pages/{page_id}", json=payload)
+
+    async def check_existing_approval(self, document_id: str) -> dict[str, Any] | None:
+        """Check if an approval entry already exists for a document."""
+        if not self.settings.approval_queue_id:
+            raise NotionServiceError("APPROVAL_QUEUE_ID is not configured.")
+            
+        approval_source = await self._get_data_source(self.settings.approval_queue_id)
+        self._validate_approval_queue_schema(approval_source)
+        
+        response = await self._request(
+            "POST",
+            f"/data_sources/{approval_source['id']}/query",
+            json={
+                "page_size": 1,
+                "filter": {
+                    "property": DOCUMENT_RELATION_PROPERTY,
+                    "relation": {"contains": document_id},
+                },
+            },
+        )
+        
+        results = response.get("results")
+        if not results:
+            return None
+            
+        page = results[0]
+        properties = page.get("properties", {})
+        status_value = properties.get(APPROVAL_STATUS_PROPERTY, {}).get("status")
+        
+        return {
+            "id": page.get("id"),
+            "status": status_value.get("name") if isinstance(status_value, dict) else None,
+        }
+
+    async def create_approval_entry(self, document_id: str, document_name: str, reason: str, created_at: str) -> dict[str, Any]:
+        """Create a new pending approval entry."""
+        if not self.settings.approval_queue_id:
+            raise NotionServiceError("APPROVAL_QUEUE_ID is not configured.")
+            
+        approval_source = await self._get_data_source(self.settings.approval_queue_id)
+        self._validate_approval_queue_schema(approval_source)
+        
+        properties_payload: dict[str, Any] = {
+            APPROVAL_NAME_PROPERTY: {
+                "title": [{"text": {"content": f"Approval: {document_name}"}}],
+            },
+            DOCUMENT_RELATION_PROPERTY: {
+                "relation": [{"id": document_id}],
+            },
+            APPROVAL_STATUS_PROPERTY: {
+                "status": {"name": ApprovalStatus.PENDING_APPROVAL.value},
+            },
+        }
+        
+        schema = approval_source.get("properties", {})
+        if REASON_PROPERTY in schema and schema[REASON_PROPERTY].get("type") == "rich_text":
+            properties_payload[REASON_PROPERTY] = {"rich_text": [{"text": {"content": reason}}]}
+            
+        if CREATED_AT_PROPERTY in schema and schema[CREATED_AT_PROPERTY].get("type") == "date":
+            properties_payload[CREATED_AT_PROPERTY] = {"date": {"start": created_at}}
+            
+        payload = {
+            "parent": {"type": "data_source_id", "data_source_id": approval_source["id"]},
+            "properties": properties_payload,
+        }
+        return await self._request("POST", "/pages", json=payload)
+
+    async def get_pending_approvals(self) -> list[dict[str, Any]]:
+        """Get all pending approval items."""
+        if not self.settings.approval_queue_id:
+            raise NotionServiceError("APPROVAL_QUEUE_ID is not configured.")
+            
+        approval_source = await self._get_data_source(self.settings.approval_queue_id)
+        self._validate_approval_queue_schema(approval_source)
+        
+        response = await self._request(
+            "POST",
+            f"/data_sources/{approval_source['id']}/query",
+            json={
+                "filter": {
+                    "property": APPROVAL_STATUS_PROPERTY,
+                    "status": {"equals": ApprovalStatus.PENDING_APPROVAL.value},
+                },
+            },
+        )
+        
+        return response.get("results", [])
+
+    async def get_approval_entry(self, approval_id: str) -> dict[str, Any]:
+        """Get a specific approval entry by ID."""
+        return await self._request("GET", f"/pages/{approval_id}")
+
+    async def update_approval_decision(self, approval_id: str, decision: str, notes: str | None, decision_date: str) -> dict[str, Any]:
+        """Update an approval entry with a decision."""
+        if not self.settings.approval_queue_id:
+            raise NotionServiceError("APPROVAL_QUEUE_ID is not configured.")
+            
+        approval_source = await self._get_data_source(self.settings.approval_queue_id)
+        schema = approval_source.get("properties", {})
+        
+        properties_payload: dict[str, Any] = {
+            APPROVAL_STATUS_PROPERTY: {"status": {"name": decision}}
+        }
+        
+        if notes and REVIEWER_NOTES_PROPERTY in schema and schema[REVIEWER_NOTES_PROPERTY].get("type") == "rich_text":
+            properties_payload[REVIEWER_NOTES_PROPERTY] = {"rich_text": [{"text": {"content": notes}}]}
+            
+        if DECISION_DATE_PROPERTY in schema and schema[DECISION_DATE_PROPERTY].get("type") == "date":
+            properties_payload[DECISION_DATE_PROPERTY] = {"date": {"start": decision_date}}
+            
+        payload = {"properties": properties_payload}
+        return await self._request("PATCH", f"/pages/{approval_id}", json=payload)
 

@@ -7,6 +7,7 @@ from services.notion_service import NotionService
 from services.pdf_service import process_pdf
 from services.ai_service import AIService, AIServiceError
 from services.ocr_service import OCRService, OCRServiceError
+from services.approval_service import ApprovalService, ApprovalServiceError
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ class DocumentService:
     def __init__(self) -> None:
         self.notion_service = NotionService()
         self.ai_service = AIService()
+        self.approval_service = ApprovalService()
         # OCR is optional — a missing Mistral key must not break non-OCR paths.
         self.ocr_service: OCRService | None = _try_create_ocr_service()
 
@@ -145,6 +147,24 @@ class DocumentService:
                 await self.notion_service.update_document_analysis(
                     document_id, None, workflow_status.value
                 )
+
+            # ----------------------------------------------------------------
+            # Human Approval Queue Integration (Phase 6)
+            # ----------------------------------------------------------------
+            if needs_human_review:
+                try:
+                    reason = "AI Confidence Low" if analysis else "No Usable Text / OCR Failed"
+                    if analysis and analysis.requires_human_approval:
+                        reason = f"AI Confidence Low ({analysis.confidence:.2f})"
+                    
+                    await self.approval_service.queue_document_for_review(
+                        document_id=document_id,
+                        document_name=filename,
+                        reason=reason
+                    )
+                except ApprovalServiceError as exc:
+                    logger.error("[WORKFLOW] Failed to queue document for approval: %s", exc)
+                    # We log the error but don't crash the upload flow; the document is still in inbox.
 
             processed_document["needs_human_review"] = needs_human_review
 

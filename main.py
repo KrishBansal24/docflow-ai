@@ -160,3 +160,37 @@ async def upload_document(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Document processing could not safely complete because Notion is unavailable or misconfigured.",
         ) from exc
+
+
+# -----------------------------------------------------------------------------
+# Approval Queue Endpoints (Phase 6)
+# -----------------------------------------------------------------------------
+
+from models.schemas import ApprovalListResponse, ApprovalDecisionRequest
+from services.approval_service import ApprovalService, ApprovalServiceError
+
+approval_service = ApprovalService()
+
+
+@app.get("/approvals", response_model=ApprovalListResponse)
+async def get_pending_approvals() -> ApprovalListResponse:
+    """Retrieve all pending documents requiring human review."""
+    try:
+        approvals = await approval_service.get_pending_approvals()
+        return ApprovalListResponse(approvals=approvals)
+    except ApprovalServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+
+
+@app.post("/approvals/{approval_id}/decision")
+async def submit_approval_decision(approval_id: str, request: ApprovalDecisionRequest) -> dict[str, Any]:
+    """Submit a human decision for a pending approval."""
+    try:
+        result = await approval_service.submit_decision(
+            approval_id=approval_id,
+            decision=request.decision,
+            notes=request.reviewer_notes
+        )
+        return result
+    except ApprovalServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))

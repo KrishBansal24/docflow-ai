@@ -73,11 +73,11 @@ After validation, the backend queries DOCUMENT INBOX for an exact match on its `
 ### 5. AI document understanding — implemented
 
 AI (via Google GenAI) interprets extracted text and returns structured information such as document type, vendor/company, amount, reference number, due date, priority, and suggested action. Low confidence results or errors are flagged for human review.
-### 6. Notion workflow — partially implemented
 
-The backend can verify access to the connected Notion databases, create a manual test record in **DOCUMENT INBOX**, and now automatically creates one Document Inbox record for each unique uploaded PDF. The current Phase 3 record stores the document filename, SHA-256 `File Hash`, and `Processing` status. It does not yet save AI results or create downstream approval workflows.
+### 6. Human Approval Queue — implemented (Phase 6)
 
-The planned Notion workspace will let people view processed documents, understand AI recommendations, review pending actions, approve or reject decisions, and inspect workflow history.
+Important, risky, uncertain, or low-confidence decisions should not be automated blindly. These are automatically routed to the Notion `APPROVAL QUEUE`.
+Human reviewers can see all flagged documents, approve them, correct them, or reject them. Final decisions are synchronized back to the main `DOCUMENT INBOX`.
 
 ### 7. Workflow status and human review — implemented (Phase 5)
 
@@ -89,11 +89,7 @@ Once analyzed, the document is moved into a clear workflow state in the Notion d
 
 The API response accurately reflects this state via the `workflow_status` field. Notion is safely updated even if some schema properties are missing.
 
-### 8. Approval routing — planned
-
-Important, risky, uncertain, or low-confidence decisions should not be automated blindly. These will be routed to the Notion Approval Queue for a human decision.
-
-### 9. External action — planned beyond the Phase 1 connection
+### 8. External action — planned beyond the Phase 1 connection
 
 The Run Log database connection is currently verified by the Notion test endpoint. Automated event logging is not implemented yet. The final audit trail is intended to record events such as document received, processed, analyzed, approval requested, approved, action sent, and action failed.
 
@@ -182,6 +178,10 @@ Valid PDF → No readable text → needs_human_review = true → OCR may be requ
 
 **Phase 4: Completed** — AI Document Analysis for structured data extraction.
 
+**Phase 5: Completed** — Notion Document Workflow.
+
+**Phase 6: Completed** — Human Approval Queue.
+
 The project currently supports:
 
 - FastAPI backend and Swagger documentation
@@ -198,8 +198,9 @@ The project currently supports:
 - Strict Pydantic validation for AI outputs
 - Configurable AI confidence thresholds and fallback routing
 - Basic, human-readable API error handling
+- Routing to Approval Queue for manual intervention
 
-The project does **not** yet implement duplicate recovery across multiple backend instances, automatic approval workflows, approval detection, email actions, automated Run Log entries, or deployment.
+The project does **not** yet implement duplicate recovery across multiple backend instances, automatic approval detection, email actions, automated Run Log entries, or deployment.
 
 ## ✨ Features
 
@@ -213,11 +214,10 @@ The project does **not** yet implement duplicate recovery across multiple backen
 - Rejection of empty, oversized, unsupported, corrupted, fake, and password-protected PDFs
 - OCR/human-review flag for valid PDFs with no readable text
 - One Document Inbox record for each unique file hash
+- Approval Queue workflow integration
 
 ### Planned features
 
-- AI extraction of document metadata and recommended actions
-- Notion Approval Queue workflow
 - Automatic approval/rejection detection
 - External email notifications and actions
 - Automated Run Log audit trail
@@ -304,8 +304,22 @@ NOTION_TOKEN=your_notion_token_here
 DOCUMENT_INBOX_ID=your_document_inbox_database_id
 APPROVAL_QUEUE_ID=your_approval_queue_database_id
 RUN_LOG_ID=your_run_log_database_id
-MAX_UPLOAD_SIZE_MB=10
 ```
+
+### Notion Approval Queue Setup (Phase 6)
+
+Before using the Approval Queue, create a new Notion database (e.g. `APPROVAL QUEUE`) and configure the following properties exactly:
+
+1. **Approval Name** (Property Type: `Title`)
+2. **Document** (Property Type: `Relation`) -> Pointing to your `DOCUMENT INBOX`
+3. **Approval Status** (Property Type: `Status`) -> Create options: `Pending Approval`, `Approved`, `Rejected`, `Needs Correction`
+4. **Reason for Review** (Property Type: `Rich Text`)
+5. **Reviewer Notes** (Property Type: `Rich Text`)
+6. **Created At** (Property Type: `Date`)
+7. **Decision Date** (Property Type: `Date`)
+8. **Priority** (Property Type: `Select`) -> Create options: `Low`, `Medium`, `High`, `Critical`, `Unknown`
+
+Connect your Notion Integration to this database, and place its ID in `APPROVAL_QUEUE_ID`.
 
 `MAX_UPLOAD_SIZE_MB` is optional; the code defaults to 10 when it is absent. Never commit your real `.env` file.
 

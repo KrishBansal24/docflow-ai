@@ -14,3 +14,5 @@ class DocumentStatus(str, Enum):
     AI_ANALYZED = "AI Analyzed"
     NEEDS_HUMAN_REVIEW = "Needs Human Review"
     AI_ANALYSIS_FAILED = "AI Analysis Failed"
+    APPROVED = "Approved"
+    REJECTED = "Rejected"

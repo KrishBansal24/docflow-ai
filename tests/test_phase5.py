@@ -295,7 +295,7 @@ class DocumentStatusEnumTests(unittest.TestCase):
             self.assertIsInstance(member.value, str)
 
     def test_expected_members_exist(self) -> None:
-        expected = {"Processing", "AI Analyzed", "Needs Human Review", "AI Analysis Failed"}
+        expected = {"Processing", "AI Analyzed", "Needs Human Review", "AI Analysis Failed", "Approved", "Rejected"}
         actual = {s.value for s in DocumentStatus}
         self.assertEqual(actual, expected)
 
