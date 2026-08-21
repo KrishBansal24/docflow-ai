@@ -2,7 +2,7 @@ import os
 from functools import lru_cache
 
 from dotenv import load_dotenv
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 load_dotenv()
@@ -15,6 +15,14 @@ class Settings(BaseModel):
     document_inbox_id: str | None = os.getenv("DOCUMENT_INBOX_ID")
     approval_queue_id: str | None = os.getenv("APPROVAL_QUEUE_ID")
     run_log_id: str | None = os.getenv("RUN_LOG_ID")
+    max_upload_size_mb: int = Field(
+        default_factory=lambda: int(os.getenv("MAX_UPLOAD_SIZE_MB", "10")),
+        ge=1,
+    )
+
+    @property
+    def max_upload_size_bytes(self) -> int:
+        return self.max_upload_size_mb * 1024 * 1024
 
     def missing_notion_values(self) -> list[str]:
         values = {
