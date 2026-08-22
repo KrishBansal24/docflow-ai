@@ -63,13 +63,13 @@ class WhatsAppService:
             raise WhatsAppServiceError(f"Network error: {exc}") from exc
 
     async def send_approval_notification(self, to_number: str, document_name: str, notes: str | None) -> None:
-        body = f"✅ *Document Approved:*\n{document_name}\n\nIt is ready for payment/processing."
+        body = f"✅ Great news! Your document *{document_name}* has been approved and is ready for payment/processing."
         if notes:
             body += f"\n\n*Reviewer Notes:*\n_{notes}_"
         await self.send_message(to_number, body)
         
     async def send_correction_notification(self, to_number: str, document_name: str, notes: str | None) -> None:
-        body = f"⚠️ *Action Required:*\nCorrection needed for {document_name}."
+        body = f"⚠️ Your document *{document_name}* requires some correction."
         if notes:
             body += f"\n\n*Reviewer Notes:*\n_{notes}_"
         else:

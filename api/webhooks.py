@@ -4,6 +4,7 @@ from fastapi import APIRouter, Request, BackgroundTasks, Form, HTTPException, Up
 
 from services.document_service import DocumentService
 from services.whatsapp_service import WhatsAppService
+from utils.hashing import calculate_file_hash
 from config import get_settings
 
 router = APIRouter()
@@ -21,7 +22,7 @@ async def process_whatsapp_document_bg(media_url: str, sender: str) -> None:
             response = await client.get(media_url, auth=auth)
             
             if response.is_error:
-                await whatsapp_service.send_status_reply(sender, "Failed", f"Error downloading media from Twilio: {response.status_code}")
+                await whatsapp_service.send_message(sender, f"❌ Sorry, we couldn't download your document. Please try again later. (Error: {response.status_code})")
                 return
                 
             media_content = response.content
@@ -35,15 +36,16 @@ async def process_whatsapp_document_bg(media_url: str, sender: str) -> None:
                 ext = ".png"
                 
             filename = f"whatsapp_upload_{sender}{ext}"
+            file_hash = calculate_file_hash(media_content)
 
-        # 2. Process document
-        await document_service.process_unique_document(media_content, filename, content_type)
+        # 2. Process document. We pass sender down so it can be saved in the database
+        await document_service.process_unique_document(media_content, filename, file_hash, sender=sender)
         
         # 3. Notify success
-        await whatsapp_service.send_status_reply(sender, "Success - Added to Notion", filename)
+        await whatsapp_service.send_message(sender, f"✅ Your document has been successfully received and added to the Notion processing queue.")
         
     except Exception as e:
-        await whatsapp_service.send_status_reply(sender, "Failed", f"System Error: {str(e)}")
+        await whatsapp_service.send_message(sender, f"⚠️ Oops! Something went wrong while processing your document. Our team has been notified.")
 
 
 @router.post("/whatsapp")

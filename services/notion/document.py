@@ -151,7 +151,7 @@ class DocumentNotionService:
         document_id: str,
         processing_status_name: str,
         analysis_result: DocumentAnalysisResult | None = None,
-        custom_title: str | None = None,
+        sender: str | None = None,
     ) -> dict[str, Any]:
         document_source = await self.client._get_data_source(self.client.settings.document_inbox_id or "")
         properties_schema = document_source.get("properties", {})
@@ -161,17 +161,8 @@ class DocumentNotionService:
         if PROCESSING_STATUS_PROPERTY in properties_schema:
             properties_payload[PROCESSING_STATUS_PROPERTY] = {"status": {"name": processing_status_name}}
             
-        if custom_title:
-            title_property = next(
-                (
-                    name
-                    for name, prop in properties_schema.items()
-                    if prop.get("type") == "title"
-                ),
-                None,
-            )
-            if title_property:
-                properties_payload[title_property] = {"title": [{"text": {"content": custom_title}}]}
+        if sender and "Sender" in properties_schema and properties_schema["Sender"].get("type") == "rich_text":
+            properties_payload["Sender"] = {"rich_text": [{"text": {"content": sender}}]}
             
         if analysis_result:
             if "Document Type" in properties_schema and properties_schema["Document Type"].get("type") == "select" and analysis_result.document_type:

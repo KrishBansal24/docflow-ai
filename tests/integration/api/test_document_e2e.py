@@ -113,7 +113,7 @@ class Phase5Tests(unittest.TestCase):
             "fake-page-id",
             ProcessingStatus.AI_ANALYZED.value,
             mock_ai.analyze_document.return_value,
-            custom_title=None
+            sender=None
         )
 
     # ------------------------------------------------------------------

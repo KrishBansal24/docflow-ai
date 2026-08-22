@@ -88,7 +88,7 @@ class Phase4Tests(unittest.TestCase):
         
         # Verify it attempted to update Notion with "AI Analyzed"
         self.mock_notion.update_document_properties.assert_called_once_with(
-            "fake-page-id", "AI Analyzed", fake_analysis, custom_title=None
+            "fake-page-id", "AI Analyzed", fake_analysis, sender=None
         )
 
     @patch("services.document_service.AIService")
@@ -109,7 +109,7 @@ class Phase4Tests(unittest.TestCase):
         self.assertEqual(data["processing_status"], "AI Analyzed")
         
         self.mock_notion.update_document_properties.assert_called_once_with(
-            "fake-page-id", "AI Analyzed", fake_analysis, custom_title=None
+            "fake-page-id", "AI Analyzed", fake_analysis, sender=None
         )
 
     @patch("services.document_service.AIService")
