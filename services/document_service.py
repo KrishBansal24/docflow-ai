@@ -128,24 +128,31 @@ class DocumentService:
                         filename
                     )
 
-                    await self.document_notion_service.update_document_analysis(
-                        document_id, analysis, processing_status.value
+                    custom_title = None
+                    if filename.startswith("whatsapp_upload_"):
+                        sender = filename.replace("whatsapp_upload_", "").split(".")[0]
+                        dept = analysis.departments[0] if analysis.departments else "Unknown"
+                        doc_type = analysis.document_type or "Document"
+                        custom_title = f"{doc_type} from {dept} (Sender: {sender})"
+
+                    await self.document_notion_service.update_document_properties(
+                        document_id, processing_status.value, analysis, custom_title=custom_title
                     )
                     await self.run_log_notion_service.create_run_log_entry("AI Extraction", "Success", "AI successfully extracted document data.", document_id, event_type="AI")
 
                 except AIServiceError as exc:
                     logger.warning("[WORKFLOW] AI analysis failed for %s: %s", filename, exc)
                     processing_status = ProcessingStatus.AI_ANALYSIS_FAILED
-                    await self.document_notion_service.update_document_analysis(
-                        document_id, None, processing_status.value
+                    await self.document_notion_service.update_document_properties(
+                        document_id, processing_status.value, None
                     )
                     await self.run_log_notion_service.create_run_log_entry("AI Extraction", "Failed", f"AI analysis failed: {exc}", document_id, event_type="AI")
             else:
                 processing_status = ProcessingStatus.NEEDS_HUMAN_REVIEW
                 await self.run_log_notion_service.create_run_log_entry("Text Extraction", "Failed", "Could not extract readable text from document.", document_id, event_type="System")
                 logger.info("[WORKFLOW] No usable text for %s — human review required", filename)
-                await self.document_notion_service.update_document_analysis(
-                    document_id, None, processing_status.value
+                await self.document_notion_service.update_document_properties(
+                    document_id, processing_status.value, None
                 )
 
             # ----------------------------------------------------------------

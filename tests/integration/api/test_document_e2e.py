@@ -48,7 +48,7 @@ class Phase5Tests(unittest.TestCase):
         self.mock_notion.create_processed_document = AsyncMock(
             return_value={"id": "fake-page-id"}
         )
-        self.mock_notion.update_document_analysis = AsyncMock(
+        self.mock_notion.update_document_properties = AsyncMock(
             return_value={"id": "fake-page-id"}
         )
         self.notion_patcher = patch(
@@ -109,10 +109,11 @@ class Phase5Tests(unittest.TestCase):
         self.assertEqual(data["processing_status"], ProcessingStatus.AI_ANALYZED.value)
         self.assertIsNotNone(data["analysis"])
 
-        self.mock_notion.update_document_analysis.assert_called_once_with(
+        self.mock_notion.update_document_properties.assert_called_once_with(
             "fake-page-id",
-            mock_ai.analyze_document.return_value,
             ProcessingStatus.AI_ANALYZED.value,
+            mock_ai.analyze_document.return_value,
+            custom_title=None
         )
 
     # ------------------------------------------------------------------
@@ -186,13 +187,13 @@ class Phase5Tests(unittest.TestCase):
     # ------------------------------------------------------------------
     @patch("services.document_service.AIService")
     def test_missing_optional_notion_property(self, mock_ai_class: MagicMock) -> None:
-        """Even if update_document_analysis returns empty (missing properties), workflow succeeds."""
+        """Even if update_document_properties returns empty (missing properties), workflow succeeds."""
         mock_ai = mock_ai_class.return_value
         mock_ai.analyze_document.return_value = DocumentAnalysisResult(
             document_type="Invoice",
             )
         # Simulate Notion returning empty dict (all optional properties missing)
-        self.mock_notion.update_document_analysis = AsyncMock(return_value={})
+        self.mock_notion.update_document_properties = AsyncMock(return_value={})
 
         response = self.client.post(
             "/documents/upload",
@@ -214,7 +215,7 @@ class Phase5Tests(unittest.TestCase):
         mock_ai.analyze_document.return_value = DocumentAnalysisResult(
             document_type="Invoice",
             )
-        self.mock_notion.update_document_analysis = AsyncMock(
+        self.mock_notion.update_document_properties = AsyncMock(
             side_effect=NotionServiceError("Status option 'AI Analyzed' not found")
         )
 

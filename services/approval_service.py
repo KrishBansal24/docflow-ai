@@ -172,16 +172,22 @@ class ApprovalService:
                 whatsapp_str = ", ".join(recipient_whatsapps)
                 
                 if decision == ApprovalDecision.APPROVED.value:
-                    if recipients_str:
-                        self.email_service.send_approval_notification(recipients_str, doc_title, notes)
                     for wa in recipient_whatsapps:
                         await self.whatsapp_service.send_approval_notification(wa, doc_title, notes)
+                    if recipients_str:
+                        try:
+                            self.email_service.send_approval_notification(recipients_str, doc_title, notes)
+                        except Exception as e:
+                            logger.error("[APPROVAL] Non-fatal error sending email: %s", e)
                     final_decision_status = DecisionStatus.ACTION_COMPLETED.value
                 elif decision == ApprovalDecision.NEEDS_CORRECTION.value:
-                    if recipients_str:
-                        self.email_service.send_correction_notification(recipients_str, doc_title, notes)
                     for wa in recipient_whatsapps:
                         await self.whatsapp_service.send_correction_notification(wa, doc_title, notes)
+                    if recipients_str:
+                        try:
+                            self.email_service.send_correction_notification(recipients_str, doc_title, notes)
+                        except Exception as e:
+                            logger.error("[APPROVAL] Non-fatal error sending email: %s", e)
                     final_decision_status = DecisionStatus.ACTION_COMPLETED.value
                 else:
                     # For REJECTED

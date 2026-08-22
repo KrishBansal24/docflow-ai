@@ -42,7 +42,7 @@ class AIService:
             '  "required_action": "string",\n'
             '  "suggested_recipient": "string"\n'
             "}\n\n"
-            "Evaluate the document's context to determine which departments it belongs to. Add one or more departments to the list.\n"
+            "Evaluate the document's context to determine which departments it belongs to. You MUST aggressively guess and assign at least one department from the list (Finance, IT, Legal, HR, Operations). Do not return an empty array or Unknown unless absolutely necessary.\n"
             "If a field cannot be determined, return null for it.\n\n"
             f"Document Text:\n\n{document_text}"
         )

@@ -2,6 +2,7 @@ import logging
 from typing import Any
 
 from models.workflow import ProcessingStatus, DecisionStatus
+from models.schemas import DocumentAnalysisResult
 from services.notion.client import NotionClient, NotionServiceError
 
 logger = logging.getLogger(__name__)
@@ -145,7 +146,13 @@ class DocumentNotionService:
         }
         return await self.client._request("POST", "/pages", json=payload)
 
-    async def update_document_analysis(self, page_id: str, analysis_result: Any | None, processing_status_name: str) -> dict[str, Any]:
+    async def update_document_properties(
+        self,
+        document_id: str,
+        processing_status_name: str,
+        analysis_result: DocumentAnalysisResult | None = None,
+        custom_title: str | None = None,
+    ) -> dict[str, Any]:
         document_source = await self.client._get_data_source(self.client.settings.document_inbox_id or "")
         properties_schema = document_source.get("properties", {})
         
@@ -153,6 +160,18 @@ class DocumentNotionService:
         
         if PROCESSING_STATUS_PROPERTY in properties_schema:
             properties_payload[PROCESSING_STATUS_PROPERTY] = {"status": {"name": processing_status_name}}
+            
+        if custom_title:
+            title_property = next(
+                (
+                    name
+                    for name, prop in properties_schema.items()
+                    if prop.get("type") == "title"
+                ),
+                None,
+            )
+            if title_property:
+                properties_payload[title_property] = {"title": [{"text": {"content": custom_title}}]}
             
         if analysis_result:
             if "Document Type" in properties_schema and properties_schema["Document Type"].get("type") == "select" and analysis_result.document_type:
@@ -192,7 +211,7 @@ class DocumentNotionService:
             return {}
             
         payload = {"properties": properties_payload}
-        return await self.client._request("PATCH", f"/pages/{page_id}", json=payload)
+        return await self.client._request("PATCH", f"/pages/{document_id}", json=payload)
 
     async def update_decision_status_only(self, page_id: str, decision_status_name: str) -> dict[str, Any]:
         payload = {

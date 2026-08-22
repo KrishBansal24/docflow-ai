@@ -157,7 +157,7 @@ class DocumentServicePipelineTests(unittest.IsolatedAsyncioTestCase):
         self.mock_notion = MagicMock(spec=DocumentNotionService)
         self.mock_notion.check_duplicate_document = AsyncMock(return_value={"is_duplicate": False})
         self.mock_notion.create_processed_document = AsyncMock(return_value={"id": "fake-page-id"})
-        self.mock_notion.update_document_analysis = AsyncMock()
+        self.mock_notion.update_document_properties = AsyncMock()
 
         self.notion_patcher = patch(
             "services.document_service.DocumentNotionService", return_value=self.mock_notion

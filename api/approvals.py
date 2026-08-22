@@ -1,6 +1,6 @@
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from models.schemas import ApprovalDecisionRequest, ApprovalListResponse
 from services.approval_service import ApprovalService, ApprovalServiceError
 
@@ -19,14 +19,23 @@ async def get_pending_approvals() -> ApprovalListResponse:
 
 
 @router.post("/{approval_id}/decision")
-async def submit_approval_decision(approval_id: str, request: ApprovalDecisionRequest) -> dict[str, Any]:
-    """Submit a human decision for a pending approval."""
-    try:
-        result = await approval_service.submit_decision(
-            approval_id=approval_id,
-            decision=request.decision,
-            notes=request.reviewer_notes
-        )
-        return result
-    except ApprovalServiceError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+async def submit_approval_decision(
+    approval_id: str, 
+    request: ApprovalDecisionRequest,
+    background_tasks: BackgroundTasks
+) -> dict[str, Any]:
+    """Submit a human decision for a pending approval (instant return)."""
+    
+    async def process_decision_bg() -> None:
+        try:
+            await approval_service.submit_decision(
+                approval_id=approval_id,
+                decision=request.decision,
+                notes=request.reviewer_notes
+            )
+        except Exception as exc:
+            print(f"Background approval processing failed: {exc}")
+            
+    background_tasks.add_task(process_decision_bg)
+    
+    return {"success": True, "approval_id": approval_id, "decision": request.decision, "status": "processing"}

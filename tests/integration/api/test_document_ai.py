@@ -27,7 +27,7 @@ class Phase4Tests(unittest.TestCase):
         self.mock_notion = MagicMock(spec=DocumentNotionService)
         self.mock_notion.check_duplicate_document = AsyncMock(return_value={"is_duplicate": False})
         self.mock_notion.create_processed_document = AsyncMock(return_value={"id": "fake-page-id"})
-        self.mock_notion.update_document_analysis = AsyncMock()
+        self.mock_notion.update_document_properties = AsyncMock()
 
         self.notion_patcher = patch("services.document_service.DocumentNotionService", return_value=self.mock_notion)
         self.notion_patcher.start()
@@ -87,8 +87,8 @@ class Phase4Tests(unittest.TestCase):
         self.assertEqual(data["analysis"]["amount"], 123.0)
         
         # Verify it attempted to update Notion with "AI Analyzed"
-        self.mock_notion.update_document_analysis.assert_called_once_with(
-            "fake-page-id", fake_analysis, "AI Analyzed"
+        self.mock_notion.update_document_properties.assert_called_once_with(
+            "fake-page-id", "AI Analyzed", fake_analysis, custom_title=None
         )
 
     @patch("services.document_service.AIService")
@@ -108,8 +108,8 @@ class Phase4Tests(unittest.TestCase):
         data = response.json()
         self.assertEqual(data["processing_status"], "AI Analyzed")
         
-        self.mock_notion.update_document_analysis.assert_called_once_with(
-            "fake-page-id", fake_analysis, "AI Analyzed"
+        self.mock_notion.update_document_properties.assert_called_once_with(
+            "fake-page-id", "AI Analyzed", fake_analysis, custom_title=None
         )
 
     @patch("services.document_service.AIService")
@@ -127,8 +127,8 @@ class Phase4Tests(unittest.TestCase):
         self.assertEqual(data["processing_status"], "AI Analysis Failed")
         self.assertIsNone(data.get("analysis"))
         
-        self.mock_notion.update_document_analysis.assert_called_once_with(
-            "fake-page-id", None, "AI Analysis Failed"
+        self.mock_notion.update_document_properties.assert_called_once_with(
+            "fake-page-id", "AI Analysis Failed", None
         )
 
 if __name__ == "__main__":
