@@ -1,4 +1,6 @@
 import logging
+import asyncio
+import time
 from datetime import datetime, timezone
 
 from models.approval import ApprovalDecision
@@ -27,6 +29,9 @@ class ApprovalService:
         self.directory_notion = DirectoryNotionService()
         self.email_service = EmailService()
         self.whatsapp_service = WhatsAppService()
+        self.in_flight_approvals: set[str] = set()
+        self._routing_cache = None
+        self._routing_cache_time = 0
 
     async def queue_document_for_review(
         self, document_id: str, document_name: str, reason: str, priority: str | None = None, suggested_recipient: str | None = None, sender: str | None = None
@@ -151,8 +156,11 @@ class ApprovalService:
                 recipient_whatsapps = set()
                 settings = self.email_service.settings
                 
-                # Fetch routing rules from Notion dynamically
-                routing_map = await self.directory_notion.get_department_routing()
+                # Fetch routing rules from Notion dynamically (with 60s cache)
+                if not self._routing_cache or time.time() - self._routing_cache_time > 60:
+                    self._routing_cache = await self.directory_notion.get_department_routing()
+                    self._routing_cache_time = time.time()
+                routing_map = self._routing_cache
                 
                 for dept in departments:
                     if dept in routing_map:
@@ -234,13 +242,22 @@ class ApprovalService:
                 if not decision or decision == ApprovalDecision.PENDING_DECISION.value:
                     continue
                     
+                if approval_id in self.in_flight_approvals:
+                    continue
+                    
+                self.in_flight_approvals.add(approval_id)
                 logger.info("[APPROVAL] Found unprocessed Notion decision '%s' for approval %s", decision, approval_id)
                 
-                try:
-                    await self.submit_decision(approval_id, decision, notes, bypass_status_check=True)
-                    await self.approval_notion.mark_approval_processed(approval_id)
-                    logger.info("[APPROVAL] Successfully processed and marked %s", approval_id)
-                except Exception as exc:
-                    logger.error("[APPROVAL] Failed to process decision for %s: %s", approval_id, exc)
+                async def _process_approval(app_id=approval_id, dec=decision, app_notes=notes):
+                    try:
+                        await self.submit_decision(app_id, dec, app_notes, bypass_status_check=True)
+                        await self.approval_notion.mark_approval_processed(app_id)
+                        logger.info("[APPROVAL] Successfully processed and marked %s", app_id)
+                    except Exception as exc:
+                        logger.error("[APPROVAL] Failed to process decision for %s: %s", app_id, exc)
+                    finally:
+                        self.in_flight_approvals.discard(app_id)
+                        
+                asyncio.create_task(_process_approval())
         except Exception as exc:
             logger.error("[APPROVAL] Polling Notion failed: %s", exc)
