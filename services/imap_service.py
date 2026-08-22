@@ -53,7 +53,7 @@ class IMAPService:
 
             # Only fetch emails explicitly addressed to the +docflow alias
             # The search string MUST have explicit literal quotes around it to be parsed correctly by IMAP
-            status, messages = mail.search(None, "UNREAD", "TO", '"+docflow"')
+            status, messages = mail.search(None, "UNSEEN", "TO", '"+docflow"')
             if status != "OK" or not messages[0]:
                 mail.logout()
                 return results
