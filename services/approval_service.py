@@ -246,7 +246,6 @@ class ApprovalService:
                 async def _process_approval(app_id=approval_id, dec=decision, app_notes=notes):
                     try:
                         await self.submit_decision(app_id, dec, app_notes, bypass_status_check=True)
-                        await self.approval_notion.mark_approval_processed(app_id)
                         logger.info("[APPROVAL] Successfully processed and marked %s", app_id)
                     except Exception as exc:
                         logger.error("[APPROVAL] Failed to process decision for %s: %s", app_id, exc)

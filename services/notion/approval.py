@@ -151,7 +151,8 @@ class ApprovalNotionService:
         schema = approval_source.get("properties", {})
         
         properties_payload: dict[str, Any] = {
-            APPROVAL_DECISION_PROPERTY: {"status": {"name": decision}}
+            APPROVAL_DECISION_PROPERTY: {"status": {"name": decision}},
+            BACKEND_STATUS_PROPERTY: {"status": {"name": "Processed"}}
         }
         
         if notes and REVIEWER_NOTES_PROPERTY in schema and schema[REVIEWER_NOTES_PROPERTY].get("type") == "rich_text":
@@ -191,10 +192,3 @@ class ApprovalNotionService:
         
         return response.get("results", [])
 
-    async def mark_approval_processed(self, approval_id: str) -> dict[str, Any]:
-        payload = {
-            "properties": {
-                BACKEND_STATUS_PROPERTY: {"status": {"name": "Processed"}}
-            }
-        }
-        return await self.client._request("PATCH", f"/pages/{approval_id}", json=payload)
