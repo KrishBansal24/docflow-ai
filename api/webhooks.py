@@ -35,7 +35,15 @@ async def process_whatsapp_document_bg(media_url: str, sender: str) -> None:
             elif "image/png" in content_type:
                 ext = ".png"
                 
-            filename = f"whatsapp_upload_{sender}{ext}"
+            # Try to get original filename from headers
+            content_disposition = response.headers.get("Content-Disposition", "")
+            filename = ""
+            if "filename=" in content_disposition:
+                # e.g. attachment; filename="invoice.pdf"
+                filename = content_disposition.split("filename=")[-1].strip('"\'')
+            
+            if not filename:
+                filename = f"WhatsApp_Document{ext}"
             file_hash = calculate_file_hash(media_content)
 
         # 2. Process document. We pass sender down so it can be saved in the database
