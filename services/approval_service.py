@@ -67,7 +67,7 @@ class ApprovalService:
                     whatsapp = routing_map[dept]["whatsapp"]
                     
                     for wa in whatsapp:
-                        asyncio.create_task(self.whatsapp_service.send_message(wa, f"Action Required: {document_name} needs review.", dept))
+                        asyncio.create_task(self.whatsapp_service.send_message(wa, f"Action Required: {document_name} needs review."))
                     if emails:
                         emails_str = ", ".join(emails)
                         asyncio.create_task(asyncio.to_thread(self.email_service.send_message, emails_str, "Action Required: Document Approval", f"A new document '{document_name}' has been assigned to your department ({dept}) for review.\n\nPlease review it in the Notion Approval Queue."))
