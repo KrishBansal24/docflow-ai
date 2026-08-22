@@ -55,8 +55,8 @@ class DirectoryNotionService:
                     rt = email_prop.get("rich_text", [])
                     email = "".join(t.get("plain_text", "") for t in rt).strip()
                 
-                # Extract WhatsApp Number
-                wa_prop = props.get("WhatsApp Number", {})
+                # Extract WhatsApp Number (Handle variations in column names)
+                wa_prop = props.get("WhatsApp Number") or props.get("WhatsApp") or props.get("Phone Number") or props.get("Phone") or {}
                 whatsapp = wa_prop.get("phone_number") if wa_prop.get("type") == "phone_number" else None
                 if not whatsapp and wa_prop.get("type") == "rich_text":
                     rt = wa_prop.get("rich_text", [])
