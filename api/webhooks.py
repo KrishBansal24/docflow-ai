@@ -4,12 +4,18 @@ from fastapi import APIRouter, Request, BackgroundTasks, Form, HTTPException, Up
 
 from services.document_service import DocumentService
 from services.whatsapp_service import WhatsAppService
+from services.email_service import EmailService
 from utils.hashing import calculate_file_hash
 from config import get_settings
+import re
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 document_service = DocumentService()
 whatsapp_service = WhatsAppService()
+email_service = EmailService()
 settings = get_settings()
 
 
@@ -86,25 +92,58 @@ async def twilio_whatsapp_webhook(
     return "OK"
 
 
+async def process_email_document_bg(media_content: bytes, filename: str, file_hash: str, sender: str) -> None:
+    """Background task to process an emailed document and send an email reply."""
+    try:
+        await document_service.process_unique_document(media_content, filename, file_hash, sender=sender)
+        email_service.send_message(
+            sender, 
+            "Document Processed", 
+            "✅ Your document has been successfully processed and added to the Notion processing queue."
+        )
+    except Exception as e:
+        logger.error(f"[WEBHOOK] Email bg processing failed for {filename}: {e}")
+        email_service.send_message(
+            sender, 
+            "Document Processing Failed", 
+            "⚠️ Oops! Something went wrong while processing your document. Our team has been notified."
+        )
+
+
 @router.post("/email")
 async def email_inbound_webhook(
+    request: Request,
     background_tasks: BackgroundTasks,
-    attachment1: UploadFile = File(None)
 ) -> dict[str, str]:
-    """Generic endpoint for inbound email attachments (e.g. via SendGrid Parse)."""
-    if not attachment1:
-        raise HTTPException(status_code=400, detail="No attachment found")
-        
-    content = await attachment1.read()
-    filename = attachment1.filename or "email_attachment.pdf"
-    content_type = attachment1.content_type or "application/pdf"
+    """Cloudmailin endpoint for inbound email attachments."""
+    form_data = await request.form()
     
-    # We could send an email reply here acknowledging receipt, but for now we just process
-    # Since webhooks expect fast responses, we could push this to background.
-    # For simplicity, we process it synchronously or push to bg if we had an email to reply to.
-    
-    async def process_email_bg() -> None:
-        await document_service.process_unique_document(content, filename, content_type)
+    # Extract sender
+    sender = form_data.get("envelope[from]") or form_data.get("from") or "Unknown Sender"
+    match = re.search(r'<([^>]+)>', str(sender))
+    if match:
+        sender = match.group(1)
         
-    background_tasks.add_task(process_email_bg)
+    # Find the first PDF attachment
+    attachment = None
+    for key, value in form_data.items():
+        if hasattr(value, "filename") and value.filename:
+            if value.content_type == "application/pdf" or str(value.filename).lower().endswith(".pdf"):
+                attachment = value
+                break
+                
+    if not attachment:
+        return {"status": "ignored_no_pdf"}
+        
+    content = await attachment.read()
+    filename = attachment.filename or "email_attachment.pdf"
+    file_hash = calculate_file_hash(content)
+    
+    # Send immediate acknowledgement
+    try:
+        email_service.send_message(sender, "Document Received", "⏳ Your document has been received!\nProcessing via AI and syncing to Notion...")
+    except Exception as e:
+        logger.warning(f"Could not send email ack to {sender}: {e}")
+        
+    background_tasks.add_task(process_email_document_bg, content, filename, file_hash, sender)
     return {"status": "processing_started"}

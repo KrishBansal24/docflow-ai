@@ -65,3 +65,7 @@ class EmailService:
         content += "Thank you,\nDocFlow AI Workflow"
         
         self._send_email(recipient_email, subject, content)
+
+    def send_message(self, recipient_email: str, subject: str, content: str) -> None:
+        """Send a generic email message, used for status replies."""
+        self._send_email(recipient_email, subject, content)
