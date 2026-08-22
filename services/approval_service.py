@@ -125,20 +125,19 @@ class ApprovalService:
             if not document_id:
                 raise ApprovalServiceError("Approval entry is missing document relation.", status_code=500)
 
-            # 2. Update Approval Queue
-            logger.info("[APPROVAL] Submitting decision '%s' for approval %s", decision, approval_id)
+            # 2 & 3. Update Approval Queue and Document Inbox Concurrently
+            logger.info("[APPROVAL] Submitting decision '%s' for approval %s and updating document", decision, approval_id)
             now_iso = datetime.now(timezone.utc).isoformat()
             
-            await self.approval_notion.update_approval_decision(
-                approval_id=approval_id,
-                decision=decision,
-                notes=notes,
-                decision_date=now_iso
+            await asyncio.gather(
+                self.approval_notion.update_approval_decision(
+                    approval_id=approval_id,
+                    decision=decision,
+                    notes=notes,
+                    decision_date=now_iso
+                ),
+                self.document_notion.update_decision_status_only(document_id, DecisionStatus.DECISION_TAKEN.value)
             )
-            
-            # 3. Synchronize with DOCUMENT INBOX
-            logger.info("[APPROVAL] Document decision submitted. Updating inbox decision status to %s.", DecisionStatus.DECISION_TAKEN.value)
-            await self.document_notion.update_decision_status_only(document_id, DecisionStatus.DECISION_TAKEN.value)
                 
             # 4. Trigger External Email Action (Phase 7)
             try:
@@ -188,37 +187,33 @@ class ApprovalService:
                 
                 if decision == ApprovalDecision.APPROVED.value:
                     for wa in recipient_whatsapps:
-                        await self.whatsapp_service.send_approval_notification(wa, doc_title, notes, department=primary_dept)
+                        asyncio.create_task(self.whatsapp_service.send_approval_notification(wa, doc_title, notes, department=primary_dept))
                     if recipients_str:
-                        try:
-                            self.email_service.send_approval_notification(recipients_str, doc_title, notes, department=primary_dept)
-                        except Exception as e:
-                            logger.error("[APPROVAL] Failed to send email approval to %s: %s", recipients_str, e)
+                        asyncio.create_task(asyncio.to_thread(self.email_service.send_approval_notification, recipients_str, doc_title, notes, department=primary_dept))
                     final_decision_status = DecisionStatus.ACTION_COMPLETED.value
                 elif decision == ApprovalDecision.NEEDS_CORRECTION.value:
                     for wa in recipient_whatsapps:
-                        await self.whatsapp_service.send_correction_notification(wa, doc_title, notes)
+                        asyncio.create_task(self.whatsapp_service.send_correction_notification(wa, doc_title, notes))
                     if recipients_str:
-                        try:
-                            self.email_service.send_correction_notification(recipients_str, doc_title, notes)
-                        except Exception as e:
-                            logger.error("[APPROVAL] Failed to send email correction to %s: %s", recipients_str, e)
+                        asyncio.create_task(asyncio.to_thread(self.email_service.send_correction_notification, recipients_str, doc_title, notes))
                     final_decision_status = DecisionStatus.ACTION_COMPLETED.value
                 else:
                     # For REJECTED
                     final_decision_status = DecisionStatus.DECISION_TAKEN.value
                 
                 if final_decision_status == DecisionStatus.ACTION_COMPLETED.value:
-                    # Update decision status to ACTION_COMPLETED now that notifications are sent
-                    await self.document_notion.update_decision_status_only(document_id, final_decision_status)
-                    await self.run_log_notion.create_run_log_entry("Action Completed", "Success", f"Sent notifications to: emails=[{recipients_str}] whatsapp=[{whatsapp_str}]", document_id, event_type="Workflow")
+                    # Update decision status to ACTION_COMPLETED and write to run log concurrently
+                    await asyncio.gather(
+                        self.document_notion.update_decision_status_only(document_id, final_decision_status),
+                        self.run_log_notion.create_run_log_entry("Action Completed", "Success", f"Sent notifications to: emails=[{recipients_str}] whatsapp=[{whatsapp_str}]", document_id, event_type="Workflow")
+                    )
                     
             except Exception as e:
                 logger.error("[APPROVAL] Failed to send notifications for %s: %s", approval_id, e)
                 await self.run_log_notion.create_run_log_entry("Action Completed", "Failed", f"Failed to send notifications: {e}", document_id, event_type="Workflow")
                 # We won't block the API response for an email failure, but in production we'd queue it.
 
-            await self.run_log_notion.create_run_log_entry("Human Decision", "Success", f"Reviewer decided: {decision}", document_id, event_type="Workflow")
+            asyncio.create_task(self.run_log_notion.create_run_log_entry("Human Decision", "Success", f"Reviewer decided: {decision}", document_id, event_type="Workflow"))
             return {"success": True, "approval_id": approval_id, "decision": decision}
             
         except NotionServiceError as exc:

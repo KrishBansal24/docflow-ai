@@ -22,7 +22,7 @@ async def poll_notion_approvals():
             await approval_service.process_notion_updates()
         except Exception as e:
             logger.error("Polling error: %s", e)
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
 
 async def poll_inbound_emails():
     imap_service = IMAPService()
@@ -63,7 +63,7 @@ async def poll_inbound_emails():
         except Exception as e:
             logger.error("IMAP Polling error: %s", e)
             
-        await asyncio.sleep(5)
+        await asyncio.sleep(3)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
