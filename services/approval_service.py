@@ -104,44 +104,52 @@ class ApprovalService:
         except NotionServiceError as exc:
             raise ApprovalServiceError(f"Failed to fetch approvals: {exc}") from exc
 
-    async def submit_decision(self, approval_id: str, decision: str, notes: str | None = None, bypass_status_check: bool = False) -> dict:
+    async def submit_decision(self, approval_id: str, decision: str, notes: str | None = None, bypass_status_check: bool = False, document_id: str | None = None) -> dict:
         """Submit a human decision and update the original document status if necessary."""
         try:
-            # 1. Fetch current approval item to validate state
-            try:
-                page = await self.approval_notion.get_approval_entry(approval_id)
-            except NotionServiceError as exc:
-                raise ApprovalServiceError(f"Approval not found: {exc}", status_code=404) from exc
+            # 1. Fetch current approval item to validate state (Skip if bypass enabled and we have document_id)
+            if not bypass_status_check or not document_id:
+                try:
+                    page = await self.approval_notion.get_approval_entry(approval_id)
+                except NotionServiceError as exc:
+                    raise ApprovalServiceError(f"Approval not found: {exc}", status_code=404) from exc
+                    
+                props = page.get("properties", {})
+                current_status = props.get("Approval Decision", {}).get("status", {}).get("name")
                 
-            props = page.get("properties", {})
-            current_status = props.get("Approval Decision", {}).get("status", {}).get("name")
-            
-            if not bypass_status_check and current_status != ApprovalDecision.PENDING_DECISION.value:
-                raise ApprovalServiceError(f"Cannot submit decision for approval in state: {current_status}", status_code=400)
+                if not bypass_status_check and current_status != ApprovalDecision.PENDING_DECISION.value:
+                    raise ApprovalServiceError(f"Cannot submit decision for approval in state: {current_status}", status_code=400)
+                    
+                doc_relation = props.get("Document", {}).get("relation", [])
+                document_id = doc_relation[0]["id"] if doc_relation else None
                 
-            doc_relation = props.get("Document", {}).get("relation", [])
-            document_id = doc_relation[0]["id"] if doc_relation else None
-            
             if not document_id:
                 raise ApprovalServiceError("Approval entry is missing document relation.", status_code=500)
 
-            # 2 & 3. Update Approval Queue and Document Inbox Concurrently
+            # 2 & 3 & 4. Run all heavy Notion API calls concurrently!
             logger.info("[APPROVAL] Submitting decision '%s' for approval %s and updating document", decision, approval_id)
             now_iso = datetime.now(timezone.utc).isoformat()
             
-            await asyncio.gather(
+            async def _fetch_routing():
+                if not self._routing_cache or time.time() - self._routing_cache_time > 60:
+                    self._routing_cache = await self.directory_notion.get_department_routing()
+                    self._routing_cache_time = time.time()
+                return self._routing_cache
+            
+            _, _, document, routing_map = await asyncio.gather(
                 self.approval_notion.update_approval_decision(
                     approval_id=approval_id,
                     decision=decision,
                     notes=notes,
                     decision_date=now_iso
                 ),
-                self.document_notion.update_decision_status_only(document_id, DecisionStatus.DECISION_TAKEN.value)
+                self.document_notion.update_decision_status_only(document_id, DecisionStatus.DECISION_TAKEN.value),
+                self.document_notion.get_document(document_id),
+                _fetch_routing()
             )
                 
-            # 4. Trigger External Email Action (Phase 7)
+            # 5. Trigger External Email Action (Phase 7)
             try:
-                document = await self.document_notion.get_document(document_id)
                 doc_props = document.get("properties", {})
                 
                 title_prop = doc_props.get("Document Name", {}).get("title", [])
@@ -154,12 +162,6 @@ class ApprovalService:
                 recipient_emails = set()
                 recipient_whatsapps = set()
                 settings = self.email_service.settings
-                
-                # Fetch routing rules from Notion dynamically (with 60s cache)
-                if not self._routing_cache or time.time() - self._routing_cache_time > 60:
-                    self._routing_cache = await self.directory_notion.get_department_routing()
-                    self._routing_cache_time = time.time()
-                routing_map = self._routing_cache
                 
                 for dept in departments:
                     if dept in routing_map:
@@ -237,15 +239,18 @@ class ApprovalService:
                 if not decision or decision == ApprovalDecision.PENDING_DECISION.value:
                     continue
                     
+                doc_relation = props.get("Document", {}).get("relation", [])
+                doc_id = doc_relation[0]["id"] if doc_relation else None
+                
                 if approval_id in self.in_flight_approvals:
                     continue
                     
                 self.in_flight_approvals.add(approval_id)
                 logger.info("[APPROVAL] Found unprocessed Notion decision '%s' for approval %s", decision, approval_id)
                 
-                async def _process_approval(app_id=approval_id, dec=decision, app_notes=notes):
+                async def _process_approval(app_id=approval_id, dec=decision, app_notes=notes, doc_id=doc_id):
                     try:
-                        await self.submit_decision(app_id, dec, app_notes, bypass_status_check=True)
+                        await self.submit_decision(app_id, dec, app_notes, bypass_status_check=True, document_id=doc_id)
                         await self.approval_notion.mark_approval_processed(app_id, "Processed")
                         logger.info("[APPROVAL] Successfully processed and marked %s", app_id)
                     except Exception as exc:
