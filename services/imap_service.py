@@ -51,7 +51,8 @@ class IMAPService:
             mail = self._connect()
             mail.select("inbox")
 
-            status, messages = mail.search(None, "UNREAD")
+            # Only fetch emails explicitly addressed to the +docflow alias
+            status, messages = mail.search(None, "UNREAD", "TO", "+docflow")
             if status != "OK" or not messages[0]:
                 mail.logout()
                 return results
@@ -64,6 +65,12 @@ class IMAPService:
                 for response_part in msg_data:
                     if isinstance(response_part, tuple):
                         msg = email.message_from_bytes(response_part[1])
+                        
+                        # Double-check the To header on the client side just to be safe
+                        to_header = str(msg.get("To", "")).lower()
+                        if "+docflow" not in to_header:
+                            continue
+                            
                         sender = self.extract_sender_email(msg.get("From", "Unknown"))
                         
                         pdf_found = False
