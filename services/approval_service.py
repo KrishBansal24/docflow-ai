@@ -68,11 +68,39 @@ class ApprovalService:
                     
                     for wa in whatsapp:
                         asyncio.create_task(self.whatsapp_service.send_message(wa, f"Action Required: {document_name} needs review."))
+                    
                     if emails:
                         emails_str = ", ".join(emails)
-                        asyncio.create_task(asyncio.to_thread(self.email_service.send_message, emails_str, "Action Required: Document Approval", f"A new document '{document_name}' has been assigned to your department ({dept}) for review.\n\nPlease review it in the Notion Approval Queue."))
+                        def send_action_email():
+                            try:
+                                self.email_service.send_message(emails_str, "Action Required: Document Approval", f"A new document '{document_name}' has been assigned to your department ({dept}) for review.\n\nPlease review it in the Notion Approval Queue.")
+                            except Exception as e:
+                                logger.error(f"[APPROVAL] Email to department failed: {e}")
+                        asyncio.create_task(asyncio.to_thread(send_action_email))
+                        
+                    # Create Run Log Entry for the initial notification
+                    emails_log = ", ".join(emails) if emails else ""
+                    wa_log = ", ".join(whatsapp) if whatsapp else ""
+                    asyncio.create_task(
+                        self.run_log_notion.create_run_log_entry(
+                            "Action Required Sent", 
+                            "Success", 
+                            f"Sent notifications to: emails=[{emails_log}] whatsapp=[{wa_log}]", 
+                            document_id, 
+                            event_type="Workflow"
+                        )
+                    )
             except Exception as e:
                 logger.warning("[APPROVAL] Failed to send initial approval request notifications: %s", e)
+                asyncio.create_task(
+                    self.run_log_notion.create_run_log_entry(
+                        "Action Required Sent", 
+                        "Failed", 
+                        f"Failed to send request: {e}", 
+                        document_id, 
+                        event_type="Workflow"
+                    )
+                )
                 
             return {"id": new_approval["id"], "status": ApprovalDecision.PENDING_DECISION.value}
 
