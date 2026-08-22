@@ -143,8 +143,9 @@ class ApprovalService:
                 title_prop = doc_props.get("Document Name", {}).get("title", [])
                 doc_title = "".join(t.get("plain_text", "") for t in title_prop) if title_prop else "Unknown Document"
                 
-                department_prop = doc_props.get("Departments", {}).get("multi_select", [])
+                department_prop = doc_props.get("Department", {}).get("multi_select", []) or doc_props.get("Departments", {}).get("multi_select", [])
                 departments = [d.get("name") for d in department_prop if d.get("name")]
+                primary_dept = departments[0] if departments else None
                 
                 recipient_emails = set()
                 recipient_whatsapps = set()
@@ -182,7 +183,7 @@ class ApprovalService:
                 
                 if decision == ApprovalDecision.APPROVED.value:
                     for wa in recipient_whatsapps:
-                        await self.whatsapp_service.send_approval_notification(wa, doc_title, notes)
+                        await self.whatsapp_service.send_approval_notification(wa, doc_title, notes, department=primary_dept)
                     # --- EMAIL DISABLED TEMPORARILY ---
                     # if recipients_str:
                     #     try:
