@@ -32,7 +32,8 @@ class DirectoryNotionService:
             return {}
 
         try:
-            response = await self.client._request("POST", f"/databases/{routing_db_id}/query")
+            routing_source = await self.client._get_data_source(routing_db_id)
+            response = await self.client._request("POST", f"/data_sources/{routing_source['id']}/query")
             results = response.get("results", [])
             
             mapping: dict[str, dict[str, list[str]]] = {}
