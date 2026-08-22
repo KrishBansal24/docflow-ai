@@ -14,6 +14,8 @@ from services.imap_service import IMAPService
 from services.email_service import EmailService
 from services.document_service import DocumentService
 from utils.hashing import calculate_file_hash
+import os
+import httpx
 
 async def poll_notion_approvals():
     approval_service = ApprovalService()
@@ -69,15 +71,32 @@ async def poll_inbound_emails():
             
         await asyncio.sleep(3)
 
+async def keep_alive_cron():
+    """Ping the server's own health endpoint every 10 minutes to prevent Render Free Tier from sleeping."""
+    base_url = os.getenv("RENDER_EXTERNAL_URL", "https://docflow-ai-bsu7.onrender.com")
+    url = f"{base_url.rstrip('/')}/health"
+    
+    while True:
+        try:
+            await asyncio.sleep(600)  # Sleep for 10 minutes
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url)
+                logger.info(f"[KEEP-ALIVE] Pinged {url} to stay awake. Status: {response.status_code}")
+        except Exception as e:
+            logger.warning(f"[KEEP-ALIVE] Ping failed: {e}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting Notion Poller...")
     task1 = asyncio.create_task(poll_notion_approvals())
     logger.info("Starting IMAP Poller...")
     task2 = asyncio.create_task(poll_inbound_emails())
+    logger.info("Starting Keep-Alive Cron...")
+    task3 = asyncio.create_task(keep_alive_cron())
     yield
     task1.cancel()
     task2.cancel()
+    task3.cancel()
 
 app = FastAPI(
     title="DocFlow AI",
