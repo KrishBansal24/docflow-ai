@@ -24,7 +24,9 @@ class ApprovalService:
         self.run_log_notion = RunLogNotionService()
         self.email_service = EmailService()
 
-    async def queue_document_for_review(self, document_id: str, document_name: str, reason: str) -> dict[str, str]:
+    async def queue_document_for_review(
+        self, document_id: str, document_name: str, reason: str, priority: str | None = None
+    ) -> dict[str, str]:
         """Create a new approval entry if one doesn't exist."""
         try:
             existing = await self.approval_notion.check_existing_approval(document_id)
@@ -40,6 +42,7 @@ class ApprovalService:
                 document_name=document_name,
                 reason=reason,
                 created_at=now_iso,
+                priority=priority,
             )
             logger.info("[APPROVAL] Approval queue entry created: %s", new_approval["id"])
             return {"id": new_approval["id"], "status": ApprovalDecision.PENDING_DECISION.value}
@@ -151,14 +154,14 @@ class ApprovalService:
                 if final_decision_status == DecisionStatus.ACTION_COMPLETED.value:
                     # Update decision status to ACTION_COMPLETED now that email is sent
                     await self.document_notion.update_decision_status_only(document_id, final_decision_status)
-                    await self.run_log_notion.create_run_log_entry("Action Completed", "Success", f"Sent email to {recipient}", document_id)
+                    await self.run_log_notion.create_run_log_entry("Action Completed", "Success", f"Sent email to {recipient}", document_id, event_type="Workflow")
                     
             except Exception as e:
                 logger.error("[APPROVAL] Failed to send email for %s: %s", approval_id, e)
-                await self.run_log_notion.create_run_log_entry("Action Completed", "Failed", f"Failed to send email: {e}", document_id)
+                await self.run_log_notion.create_run_log_entry("Action Completed", "Failed", f"Failed to send email: {e}", document_id, event_type="Workflow")
                 # We won't block the API response for an email failure, but in production we'd queue it.
 
-            await self.run_log_notion.create_run_log_entry("Human Decision", "Success", f"Reviewer decided: {decision}", document_id)
+            await self.run_log_notion.create_run_log_entry("Human Decision", "Success", f"Reviewer decided: {decision}", document_id, event_type="Workflow")
             return {"success": True, "approval_id": approval_id, "decision": decision}
             
         except NotionServiceError as exc:

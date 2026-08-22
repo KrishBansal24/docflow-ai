@@ -60,7 +60,7 @@ class DocumentService:
 
             document_id = (await self.document_notion_service.create_processed_document(filename, file_hash))["id"]
             logger.info("[WORKFLOW] Document created in Notion: %s (id=%s)", filename, document_id)
-            await self.run_log_notion_service.create_run_log_entry("Document Received", "Success", f"Started processing {filename}", document_id)
+            await self.run_log_notion_service.create_run_log_entry("Document Received", "Success", f"Started processing {filename}", document_id, event_type="Upload")
 
             extracted_text = processed_document["extracted_text"]
             needs_human_review = processed_document["needs_human_review"]
@@ -131,7 +131,7 @@ class DocumentService:
                     await self.document_notion_service.update_document_analysis(
                         document_id, analysis, processing_status.value
                     )
-                    await self.run_log_notion_service.create_run_log_entry("AI Extraction", "Success", "AI successfully extracted document data.", document_id)
+                    await self.run_log_notion_service.create_run_log_entry("AI Extraction", "Success", "AI successfully extracted document data.", document_id, event_type="AI")
 
                 except AIServiceError as exc:
                     logger.warning("[WORKFLOW] AI analysis failed for %s: %s", filename, exc)
@@ -139,10 +139,10 @@ class DocumentService:
                     await self.document_notion_service.update_document_analysis(
                         document_id, None, processing_status.value
                     )
-                    await self.run_log_notion_service.create_run_log_entry("AI Extraction", "Failed", f"AI analysis failed: {exc}", document_id)
+                    await self.run_log_notion_service.create_run_log_entry("AI Extraction", "Failed", f"AI analysis failed: {exc}", document_id, event_type="AI")
             else:
                 processing_status = ProcessingStatus.NEEDS_HUMAN_REVIEW
-                await self.run_log_notion_service.create_run_log_entry("Text Extraction", "Failed", "Could not extract readable text from document.", document_id)
+                await self.run_log_notion_service.create_run_log_entry("Text Extraction", "Failed", "Could not extract readable text from document.", document_id, event_type="System")
                 logger.info("[WORKFLOW] No usable text for %s — human review required", filename)
                 await self.document_notion_service.update_document_analysis(
                     document_id, None, processing_status.value
@@ -162,7 +162,8 @@ class DocumentService:
                 await self.approval_service.queue_document_for_review(
                     document_id=document_id,
                     document_name=filename,
-                    reason=reason
+                    reason=reason,
+                    priority=analysis.priority if analysis else None
                 )
             except ApprovalServiceError as exc:
                 logger.error("[WORKFLOW] Failed to queue document for approval: %s", exc)
