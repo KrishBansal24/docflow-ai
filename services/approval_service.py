@@ -29,7 +29,7 @@ class ApprovalService:
         self.whatsapp_service = WhatsAppService()
 
     async def queue_document_for_review(
-        self, document_id: str, document_name: str, reason: str, priority: str | None = None, suggested_recipient: str | None = None
+        self, document_id: str, document_name: str, reason: str, priority: str | None = None, suggested_recipient: str | None = None, sender: str | None = None
     ) -> dict[str, str]:
         """Create a new approval entry if one doesn't exist."""
         try:
@@ -49,6 +49,7 @@ class ApprovalService:
                 reason=reason,
                 created_at=now_iso,
                 priority=priority,
+                sender=sender,
             )
             logger.info("[APPROVAL] Approval queue entry created: %s", new_approval["id"])
             return {"id": new_approval["id"], "status": ApprovalDecision.PENDING_DECISION.value}

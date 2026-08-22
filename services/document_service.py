@@ -165,7 +165,8 @@ class DocumentService:
                         document_name=filename,
                         reason="Review AI Extraction",
                         suggested_recipient=suggested_approver,
-                        priority=analysis.priority if analysis else None
+                        priority=analysis.priority if analysis else None,
+                        sender=sender,
                     )
                 else:
                     reason = "No Usable Text / OCR Failed" if processing_status == ProcessingStatus.NEEDS_HUMAN_REVIEW else "AI Analysis Failed"
@@ -173,7 +174,8 @@ class DocumentService:
                         document_id=document_id,
                         document_name=filename,
                         reason=reason,
-                        priority=None
+                        priority=None,
+                        sender=sender,
                     )
             except ApprovalServiceError as exc:
                 logger.error("[WORKFLOW] Failed to queue document for approval: %s", exc)

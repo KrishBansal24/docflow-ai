@@ -86,7 +86,7 @@ class ApprovalNotionService:
         }
 
     async def create_approval_entry(
-        self, document_id: str, document_name: str, reason: str, created_at: str, priority: str | None = None
+        self, document_id: str, document_name: str, reason: str, created_at: str, priority: str | None = None, sender: str | None = None
     ) -> dict[str, Any]:
         if not self.client.settings.approval_queue_id:
             raise NotionServiceError("APPROVAL_QUEUE_ID is not configured.")
@@ -107,6 +107,9 @@ class ApprovalNotionService:
             
         if CREATED_AT_PROPERTY in schema and schema[CREATED_AT_PROPERTY].get("type") == "date":
             properties_payload[CREATED_AT_PROPERTY] = {"date": {"start": created_at}}
+            
+        if sender and "Sender" in schema and schema["Sender"].get("type") == "rich_text":
+            properties_payload["Sender"] = {"rich_text": [{"text": {"content": sender}}]}
             
         if priority and PRIORITY_PROPERTY in schema and schema[PRIORITY_PROPERTY].get("type") == "select":
             properties_payload[PRIORITY_PROPERTY] = {"select": {"name": priority}}
