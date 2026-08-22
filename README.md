@@ -89,9 +89,22 @@ Once analyzed, the document is moved into a clear workflow state in the Notion d
 
 The API response accurately reflects this state via the `workflow_status` field. Notion is safely updated even if some schema properties are missing.
 
-### 8. External action — planned beyond the Phase 1 connection
+### 8. External Email Actions — planned (Phase 7)
 
-The Run Log database connection is currently verified by the Notion test endpoint. Automated event logging is not implemented yet. The final audit trail is intended to record events such as document received, processed, analyzed, approval requested, approved, action sent, and action failed.
+If a department does not have a registered WhatsApp number (or as a secondary notification), the system will send an email with the document details and an approval request. This logic operates in parallel and separate from the WhatsApp logic to prevent clashes.
+
+### 9. Automated Run Log (Audit Trail) — planned (Phase 8)
+
+For compliance and traceability, every significant action must be recorded. The backend will automatically write entries to the RUN LOG when a document is uploaded, AI analysis succeeds/fails, it enters the approval queue, and when a human makes a final decision.
+
+### 10. Google Drive Categorization — planned (Phase 9)
+
+Automatically upload incoming PDFs to Google Drive, organized into folders by the extracted Department or Vendor, and attach the shared Drive link to the Notion DOCUMENT INBOX record for easy human review.
+
+### 11. Vendor / Entity Linking — planned (Phase 10)
+
+Create a VENDORS database in Notion. When the AI extracts a vendor name, the system will match it to the VENDORS database and link the records together.
+
 
 ## 🏗️ System Architecture
 
@@ -180,7 +193,7 @@ Valid PDF → No readable text → needs_human_review = true → OCR may be requ
 
 **Phase 5: Completed** — Notion Document Workflow.
 
-**Phase 6: Completed** — Human Approval Queue.
+**Phase 6: Completed** — Omnichannel Approval Queue with WhatsApp Webhooks.
 
 The project currently supports:
 
@@ -418,12 +431,13 @@ Also test a `.txt` file renamed to `.pdf`, an empty `.pdf`, a corrupted PDF, and
 - ✅ **Phase 3 — Duplicate Detection:** Completed
 - ✅ **Phase 4 — AI Document Analysis:** Completed
 - ✅ **Phase 5 — Notion Document Workflow:** Completed
-- ⏳ **Phase 6 — Human Approval Queue:** Planned
-- ⏳ **Phase 7 — Automatic Approval Detection:** Planned
-- ⏳ **Phase 8 — External Email Action:** Planned
-- ⏳ **Phase 9 — Automated Run Log:** Planned
-- ⏳ **Phase 10 — Error Handling and Recovery:** Planned
-- ⏳ **Phase 11 — Deployment:** Planned
+- ✅ **Phase 6 — Omnichannel Approval Queue (WhatsApp):** Completed
+- ⏳ **Phase 7 — External Email Actions:** Planned
+- ⏳ **Phase 8 — Automated Run Log:** Planned
+- ⏳ **Phase 9 — Google Drive Categorization:** Planned
+- ⏳ **Phase 10 — Vendor/Entity Linking:** Planned
+- ⏳ **Phase 11 — Error Handling and Recovery:** Planned
+- ⏳ **Phase 12 — Deployment:** Planned
 
 ## 🎯 Final Project Goal
 
@@ -436,3 +450,18 @@ The intended product is more than a PDF viewer, document summarizer, chatbot, or
 Configuration and secrets are loaded from environment variables using `.env`; they are not hardcoded in the source code. The repository includes `.env.example` with placeholders only, while `.gitignore` excludes `.env`, environment-specific files, virtual environments, logs, uploads, and common IDE files.
 
 Do not add Notion tokens, API keys, email passwords, or other credentials to source files, README examples, or commits.
+
+### Phase 9: Google Drive Setup Instructions
+
+To prepare for Phase 9 (Google Drive Categorization), you will need a Google Cloud Project with the Drive API enabled. Follow these steps:
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/).
+2. Create a new project (e.g., docflow-ai-drive).
+3. Navigate to **APIs & Services > Library** and search for **Google Drive API**. Click **Enable**.
+4. Go to **APIs & Services > Credentials**.
+5. Click **Create Credentials** -> **Service Account**.
+6. Name it (e.g., docflow-drive-bot) and grant it the **Editor** role.
+7. Once created, click on the Service Account, go to the **Keys** tab, and click **Add Key** -> **Create New Key** (JSON format).
+8. This will download a .json file containing your credentials. Keep this safe; we will place it in the project root later.
+9. In your Google Drive, create a Master Folder (e.g., DocFlow Invoices) and share it with the email address of the Service Account (found in the JSON file) giving it **Editor** access.
+10. Note the Folder ID from the URL of your Master Folder. We will use this in the .env file during Phase 9.
