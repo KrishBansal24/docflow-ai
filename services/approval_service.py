@@ -133,19 +133,47 @@ class ApprovalService:
                 document = await self.document_notion.get_document(document_id)
                 doc_props = document.get("properties", {})
                 
-                title_prop = doc_props.get("Filename", {}).get("title", [])
+                title_prop = doc_props.get("Document Name", {}).get("title", [])
                 doc_title = "".join(t.get("plain_text", "") for t in title_prop) if title_prop else "Unknown Document"
                 
-                recipient_prop = doc_props.get("Suggested Recipient", {}).get("rich_text", [])
-                suggested_recipient = "".join(t.get("plain_text", "") for t in recipient_prop) if recipient_prop else None
+                department_prop = doc_props.get("Departments", {}).get("multi_select", [])
+                departments = [d.get("name") for d in department_prop if d.get("name")]
                 
-                recipient = suggested_recipient or self.email_service.settings.smtp_from_email or "admin@example.com"
+                recipient_emails = set()
+                settings = self.email_service.settings
+                
+                dept_map = {
+                    "Finance": settings.email_finance,
+                    "IT": settings.email_it,
+                    "Legal": settings.email_legal,
+                    "HR": settings.email_hr,
+                    "Operations": settings.email_operations,
+                }
+                
+                for dept in departments:
+                    if email := dept_map.get(dept):
+                        recipient_emails.add(email)
+                        
+                if not recipient_emails:
+                    recipient_prop = doc_props.get("Suggested Recipient", {}).get("rich_text", [])
+                    if suggested := "".join(t.get("plain_text", "") for t in recipient_prop):
+                        recipient_emails.add(suggested)
+                        
+                if not recipient_emails:
+                    if settings.email_default:
+                        recipient_emails.add(settings.email_default)
+                    elif settings.smtp_from_email:
+                        recipient_emails.add(settings.smtp_from_email)
+                    else:
+                        recipient_emails.add("admin@example.com")
+                
+                recipients_str = ", ".join(recipient_emails)
                 
                 if decision == ApprovalDecision.APPROVED.value:
-                    self.email_service.send_approval_notification(recipient, doc_title, notes)
+                    self.email_service.send_approval_notification(recipients_str, doc_title, notes)
                     final_decision_status = DecisionStatus.ACTION_COMPLETED.value
                 elif decision == ApprovalDecision.NEEDS_CORRECTION.value:
-                    self.email_service.send_correction_notification(recipient, doc_title, notes)
+                    self.email_service.send_correction_notification(recipients_str, doc_title, notes)
                     final_decision_status = DecisionStatus.ACTION_COMPLETED.value
                 else:
                     # For REJECTED, maybe we just don't send an email, or we do, but let's stick to the spec.
@@ -154,7 +182,7 @@ class ApprovalService:
                 if final_decision_status == DecisionStatus.ACTION_COMPLETED.value:
                     # Update decision status to ACTION_COMPLETED now that email is sent
                     await self.document_notion.update_decision_status_only(document_id, final_decision_status)
-                    await self.run_log_notion.create_run_log_entry("Action Completed", "Success", f"Sent email to {recipient}", document_id, event_type="Workflow")
+                    await self.run_log_notion.create_run_log_entry("Action Completed", "Success", f"Sent email to {recipients_str}", document_id, event_type="Workflow")
                     
             except Exception as e:
                 logger.error("[APPROVAL] Failed to send email for %s: %s", approval_id, e)

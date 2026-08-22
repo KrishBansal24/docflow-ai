@@ -27,6 +27,14 @@ class Settings(BaseModel):
         ge=1,
     )
     
+    # Department Emails
+    email_finance: str | None = os.getenv("EMAIL_FINANCE")
+    email_it: str | None = os.getenv("EMAIL_IT")
+    email_legal: str | None = os.getenv("EMAIL_LEGAL")
+    email_hr: str | None = os.getenv("EMAIL_HR")
+    email_operations: str | None = os.getenv("EMAIL_OPERATIONS")
+    email_default: str | None = os.getenv("EMAIL_DEFAULT", smtp_from_email)
+    
     # Phase 4 AI Settings
     ai_provider: str = os.getenv("AI_PROVIDER", "gemini")
     ai_api_key: str | None = os.getenv("AI_API_KEY")

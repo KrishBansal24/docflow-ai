@@ -30,7 +30,8 @@ class AIService:
             "You are an AI document analysis assistant. Read the following text and extract the key information.\n"
             "Return a valid JSON object matching this schema exactly:\n"
             "{\n"
-            '  "document_type": "Invoice" | "Receipt" | "Contract" | "Unknown",\n'
+            '  "document_type": "Invoice" | "Receipt" | "Purchase Order" | "Bank Statement" | "Tax Form" | "Hardware Request" | "Software License" | "Technical Specs" | "Contract" | "NDA" | "Terms of Service" | "Resume" | "Offer Letter" | "Timesheet" | "Shipping Manifest" | "Inventory Report" | "SOP" | "Other" | "Unknown",\n'
+            '  "departments": ["Finance" | "IT" | "Legal" | "HR" | "Operations" | "Unknown"],\n'
             '  "vendor_company": "string",\n'
             '  "reference_number": "string",\n'
             '  "amount": number,\n'
@@ -41,6 +42,7 @@ class AIService:
             '  "required_action": "string",\n'
             '  "suggested_recipient": "string"\n'
             "}\n\n"
+            "Evaluate the document's context to determine which departments it belongs to. Add one or more departments to the list.\n"
             "If a field cannot be determined, return null for it.\n\n"
             f"Document Text:\n\n{document_text}"
         )

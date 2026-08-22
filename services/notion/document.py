@@ -125,7 +125,7 @@ class DocumentNotionService:
         }
 
     async def get_document(self, document_id: str) -> dict[str, Any]:
-        return await self.client._request("GET", f"pages/{document_id}")
+        return await self.client._request("GET", f"/pages/{document_id}")
 
     async def create_processed_document(self, filename: str, file_hash: str) -> dict[str, Any]:
         document_source = await self.client._get_data_source(self.client.settings.document_inbox_id or "")
@@ -157,6 +157,9 @@ class DocumentNotionService:
         if analysis_result:
             if "Document Type" in properties_schema and properties_schema["Document Type"].get("type") == "select" and analysis_result.document_type:
                 properties_payload["Document Type"] = {"select": {"name": analysis_result.document_type}}
+                
+            if "Departments" in properties_schema and properties_schema["Departments"].get("type") == "multi_select" and analysis_result.departments:
+                properties_payload["Departments"] = {"multi_select": [{"name": dep} for dep in analysis_result.departments if dep]}
             
             if "Vendor" in properties_schema and properties_schema["Vendor"].get("type") == "rich_text" and analysis_result.vendor_or_company:
                 properties_payload["Vendor"] = {"rich_text": [{"text": {"content": analysis_result.vendor_or_company}}]}

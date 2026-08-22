@@ -23,6 +23,7 @@ class TestDocumentResponse(BaseModel):
 
 class DocumentAnalysisResult(BaseModel):
     document_type: str | None = None
+    departments: list[str] = []
     vendor_or_company: str | None = None
     reference_number: str | None = None
     amount: float | None = None
