@@ -177,7 +177,9 @@ class DocumentNotionService:
             if "Document Type" in properties_schema and properties_schema["Document Type"].get("type") == "select" and analysis_result.document_type:
                 properties_payload["Document Type"] = {"select": {"name": analysis_result.document_type}}
                 
-            if "Departments" in properties_schema and properties_schema["Departments"].get("type") == "multi_select" and analysis_result.departments:
+            if "Department" in properties_schema and properties_schema["Department"].get("type") == "multi_select" and analysis_result.departments:
+                properties_payload["Department"] = {"multi_select": [{"name": dep} for dep in analysis_result.departments if dep]}
+            elif "Departments" in properties_schema and properties_schema["Departments"].get("type") == "multi_select" and analysis_result.departments:
                 properties_payload["Departments"] = {"multi_select": [{"name": dep} for dep in analysis_result.departments if dep]}
             
             if "Vendor" in properties_schema and properties_schema["Vendor"].get("type") == "rich_text" and analysis_result.vendor_or_company:

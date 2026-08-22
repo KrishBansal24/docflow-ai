@@ -169,13 +169,12 @@ class ApprovalService:
                         else:
                             logger.info("[APPROVAL] Suggested Recipient '%s' is neither email nor WhatsApp. Falling back to defaults.", suggested)
                         
-                if not recipient_emails:
-                    if settings.email_default:
-                        recipient_emails.add(settings.email_default)
-                    elif settings.smtp_from_email:
-                        recipient_emails.add(settings.smtp_from_email)
-                    else:
-                        recipient_emails.add("admin@example.com")
+                # --- EMAIL DISABLED TEMPORARILY ---
+                # if not recipient_emails:
+                #     if settings.smtp_from_email:
+                #         recipient_emails.add(settings.smtp_from_email)
+                #     else:
+                #         recipient_emails.add("admin@example.com")
                 
                 recipients_str = ", ".join(recipient_emails)
                 whatsapp_str = ", ".join(recipient_whatsapps)
@@ -183,20 +182,22 @@ class ApprovalService:
                 if decision == ApprovalDecision.APPROVED.value:
                     for wa in recipient_whatsapps:
                         await self.whatsapp_service.send_approval_notification(wa, doc_title, notes)
-                    if recipients_str:
-                        try:
-                            self.email_service.send_approval_notification(recipients_str, doc_title, notes)
-                        except Exception as e:
-                            logger.error("[APPROVAL] Non-fatal error sending email: %s", e)
+                    # --- EMAIL DISABLED TEMPORARILY ---
+                    # if recipients_str:
+                    #     try:
+                    #         self.email_service.send_approval_notification(recipients_str, doc_title, notes)
+                    #     except Exception as e:
+                    #         logger.error("[APPROVAL] Failed to send email approval to %s: %s", recipients_str, e)
                     final_decision_status = DecisionStatus.ACTION_COMPLETED.value
                 elif decision == ApprovalDecision.NEEDS_CORRECTION.value:
                     for wa in recipient_whatsapps:
                         await self.whatsapp_service.send_correction_notification(wa, doc_title, notes)
-                    if recipients_str:
-                        try:
-                            self.email_service.send_correction_notification(recipients_str, doc_title, notes)
-                        except Exception as e:
-                            logger.error("[APPROVAL] Non-fatal error sending email: %s", e)
+                    # --- EMAIL DISABLED TEMPORARILY ---
+                    # if recipients_str:
+                    #     try:
+                    #         self.email_service.send_correction_notification(recipients_str, doc_title, notes)
+                    #     except Exception as e:
+                    #         logger.error("[APPROVAL] Failed to send email correction to %s: %s", recipients_str, e)
                     final_decision_status = DecisionStatus.ACTION_COMPLETED.value
                 else:
                     # For REJECTED
