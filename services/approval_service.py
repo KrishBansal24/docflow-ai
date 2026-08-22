@@ -29,7 +29,7 @@ class ApprovalService:
         self.whatsapp_service = WhatsAppService()
 
     async def queue_document_for_review(
-        self, document_id: str, document_name: str, reason: str, priority: str | None = None
+        self, document_id: str, document_name: str, reason: str, priority: str | None = None, suggested_recipient: str | None = None
     ) -> dict[str, str]:
         """Create a new approval entry if one doesn't exist."""
         try:
@@ -41,9 +41,11 @@ class ApprovalService:
             logger.info("[APPROVAL] Document requires human review: %s. Creating queue entry.", document_name)
             now_iso = datetime.now(timezone.utc).isoformat()
             
+            approval_title = suggested_recipient if suggested_recipient and suggested_recipient != "Unknown" else f"Approval: {document_name}"
+            
             new_approval = await self.approval_notion.create_approval_entry(
                 document_id=document_id,
-                document_name=document_name,
+                document_name=approval_title,
                 reason=reason,
                 created_at=now_iso,
                 priority=priority,
@@ -158,7 +160,14 @@ class ApprovalService:
                 if not recipient_emails and not recipient_whatsapps:
                     recipient_prop = doc_props.get("Suggested Recipient", {}).get("rich_text", [])
                     if suggested := "".join(t.get("plain_text", "") for t in recipient_prop):
-                        recipient_emails.add(suggested)
+                        if "@" in suggested:
+                            recipient_emails.add(suggested)
+                        elif any(char.isdigit() for char in suggested):
+                            if not suggested.startswith("whatsapp:"):
+                                suggested = f"whatsapp:{suggested}"
+                            recipient_whatsapps.add(suggested)
+                        else:
+                            logger.info("[APPROVAL] Suggested Recipient '%s' is neither email nor WhatsApp. Falling back to defaults.", suggested)
                         
                 if not recipient_emails:
                     if settings.email_default:

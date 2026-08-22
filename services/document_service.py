@@ -7,6 +7,7 @@ from config import get_settings
 from models.workflow import ProcessingStatus, DecisionStatus
 from models.approval import ApprovalDecision
 from services.notion import DocumentNotionService, RunLogNotionService
+from services.notion.directory import DirectoryNotionService
 from services.pdf_service import process_pdf
 from services.ai_service import AIService, AIServiceError
 from services.ocr_service import OCRService, OCRServiceError
@@ -42,6 +43,7 @@ class DocumentService:
     def __init__(self) -> None:
         self.document_notion_service = DocumentNotionService()
         self.run_log_notion_service = RunLogNotionService()
+        self.directory_notion_service = DirectoryNotionService()
         self.ai_service = AIService()
         self.approval_service = ApprovalService()
         # OCR is optional — a missing Mistral key must not break non-OCR paths.
@@ -121,7 +123,10 @@ class DocumentService:
 
             if not needs_human_review:
                 try:
-                    analysis = self.ai_service.analyze_document(extracted_text)
+                    routing_map = await self.directory_notion_service.get_department_routing()
+                    available_departments = list(routing_map.keys()) if routing_map else None
+                    
+                    analysis = self.ai_service.analyze_document(extracted_text, available_departments)
                     processing_status = ProcessingStatus.AI_ANALYZED
                     logger.info(
                         "[WORKFLOW] AI analysis completed for %s",
@@ -160,18 +165,23 @@ class DocumentService:
             # Universal Rule: EVERY unique document must enter the Approval Queue
             # ----------------------------------------------------------------
             try:
-                reason = "Routine Review"
-                if processing_status == ProcessingStatus.NEEDS_HUMAN_REVIEW:
-                    reason = "No Usable Text / OCR Failed"
-                elif processing_status == ProcessingStatus.AI_ANALYSIS_FAILED:
-                    reason = "AI Analysis Failed"
-                
-                await self.approval_service.queue_document_for_review(
-                    document_id=document_id,
-                    document_name=filename,
-                    reason=reason,
-                    priority=analysis.priority if analysis else None
-                )
+                if processing_status == ProcessingStatus.AI_ANALYZED:
+                    suggested_approver = analysis.departments[0] if (analysis and analysis.departments) else "Unknown"
+                    await self.approval_service.queue_document_for_review(
+                        document_id=document_id,
+                        document_name=filename,
+                        reason="Review AI Extraction",
+                        suggested_recipient=suggested_approver,
+                        priority=analysis.priority if analysis else None
+                    )
+                else:
+                    reason = "No Usable Text / OCR Failed" if processing_status == ProcessingStatus.NEEDS_HUMAN_REVIEW else "AI Analysis Failed"
+                    await self.approval_service.queue_document_for_review(
+                        document_id=document_id,
+                        document_name=filename,
+                        reason=reason,
+                        priority=None
+                    )
             except ApprovalServiceError as exc:
                 logger.error("[WORKFLOW] Failed to queue document for approval: %s", exc)
                 # We log the error but don't crash the upload flow; the document is still in inbox.

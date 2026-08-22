@@ -24,14 +24,15 @@ class AIService:
         self.client = genai.Client(api_key=self.settings.ai_api_key)
         logger.info("[AI] Service initialized with model: %s", self.settings.ai_model)
 
-    def analyze_document(self, document_text: str) -> DocumentAnalysisResult:
+    def analyze_document(self, document_text: str, available_departments: list[str] | None = None) -> DocumentAnalysisResult:
         """Analyze document text and extract structured information."""
+        dept_str = ", ".join(available_departments) if available_departments else "Finance, IT, Legal, HR, Operations"
         prompt = (
             "You are an AI document analysis assistant. Read the following text and extract the key information.\n"
             "Return a valid JSON object matching this schema exactly:\n"
             "{\n"
             '  "document_type": "Invoice" | "Receipt" | "Purchase Order" | "Bank Statement" | "Tax Form" | "Hardware Request" | "Software License" | "Technical Specs" | "Contract" | "NDA" | "Terms of Service" | "Resume" | "Offer Letter" | "Timesheet" | "Shipping Manifest" | "Inventory Report" | "SOP" | "Other" | "Unknown",\n'
-            '  "departments": ["Finance" | "IT" | "Legal" | "HR" | "Operations" | "Unknown"],\n'
+            f'  "departments": ["{dept_str}" | "Unknown"],\n'
             '  "vendor_company": "string",\n'
             '  "reference_number": "string",\n'
             '  "amount": number,\n'
@@ -42,7 +43,7 @@ class AIService:
             '  "required_action": "string",\n'
             '  "suggested_recipient": "string"\n'
             "}\n\n"
-            "Evaluate the document's context to determine which departments it belongs to. You MUST aggressively guess and assign at least one department from the list (Finance, IT, Legal, HR, Operations). Do not return an empty array or Unknown unless absolutely necessary.\n"
+            f"Evaluate the document's context to determine which departments it belongs to. You MUST aggressively guess and assign at least one department from this EXACT list: [{dept_str}]. Do not return an empty array or Unknown unless absolutely necessary.\n"
             "If a field cannot be determined, return null for it.\n\n"
             f"Document Text:\n\n{document_text}"
         )

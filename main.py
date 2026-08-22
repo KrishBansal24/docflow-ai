@@ -18,7 +18,7 @@ async def poll_notion_approvals():
             await approval_service.process_notion_updates()
         except Exception as e:
             logger.error("Polling error: %s", e)
-        await asyncio.sleep(30)
+        await asyncio.sleep(5)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
