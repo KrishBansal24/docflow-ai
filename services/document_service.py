@@ -56,9 +56,27 @@ class DocumentService:
         async with _document_creation_lock:
             duplicate_result = await self.document_notion_service.check_duplicate_document(file_hash)
             if duplicate_result["is_duplicate"]:
+                doc_id = duplicate_result.get("document_id")
+                await self.run_log_notion_service.create_run_log_entry(
+                    "Upload Received", 
+                    "Failed", 
+                    f"Rejected duplicate upload of {filename}", 
+                    doc_id, 
+                    event_type="Upload"
+                )
                 return duplicate_result
 
-            processed_document = process_pdf(file_bytes, filename, file_hash)
+            try:
+                processed_document = process_pdf(file_bytes, filename, file_hash)
+            except Exception as e:
+                await self.run_log_notion_service.create_run_log_entry(
+                    "Document Received", 
+                    "Failed", 
+                    f"Failed to parse document {filename}: {e}", 
+                    None, 
+                    event_type="Upload"
+                )
+                raise
 
             document_id = (await self.document_notion_service.create_processed_document(filename, file_hash))["id"]
             logger.info("[WORKFLOW] Document created in Notion: %s (id=%s)", filename, document_id)
