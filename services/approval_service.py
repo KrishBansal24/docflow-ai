@@ -96,7 +96,7 @@ class ApprovalService:
         except NotionServiceError as exc:
             raise ApprovalServiceError(f"Failed to fetch approvals: {exc}") from exc
 
-    async def submit_decision(self, approval_id: str, decision: str, notes: str | None = None) -> dict:
+    async def submit_decision(self, approval_id: str, decision: str, notes: str | None = None, bypass_status_check: bool = False) -> dict:
         """Submit a human decision and update the original document status if necessary."""
         try:
             # 1. Fetch current approval item to validate state
@@ -108,7 +108,7 @@ class ApprovalService:
             props = page.get("properties", {})
             current_status = props.get("Approval Decision", {}).get("status", {}).get("name")
             
-            if current_status != ApprovalDecision.PENDING_DECISION.value:
+            if not bypass_status_check and current_status != ApprovalDecision.PENDING_DECISION.value:
                 raise ApprovalServiceError(f"Cannot submit decision for approval in state: {current_status}", status_code=400)
                 
             doc_relation = props.get("Document", {}).get("relation", [])
@@ -209,3 +209,31 @@ class ApprovalService:
         except NotionServiceError as exc:
             logger.error("[APPROVAL] Notion update failed during decision submission: %s", exc)
             raise ApprovalServiceError(f"Notion API failure: {exc}") from exc
+
+    async def process_notion_updates(self) -> None:
+        """Polls Notion for any unprocessed decisions and handles them."""
+        try:
+            unprocessed = await self.approval_notion.get_unprocessed_decisions()
+            for approval in unprocessed:
+                approval_id = approval["id"]
+                props = approval.get("properties", {})
+                
+                decision_obj = props.get("Approval Decision", {}).get("status", {})
+                decision = decision_obj.get("name") if decision_obj else None
+                
+                notes_obj = props.get("Reviewer Notes", {}).get("rich_text", [])
+                notes = "".join(t.get("plain_text", "") for t in notes_obj) if notes_obj else None
+                
+                if not decision or decision == ApprovalDecision.PENDING_DECISION.value:
+                    continue
+                    
+                logger.info("[APPROVAL] Found unprocessed Notion decision '%s' for approval %s", decision, approval_id)
+                
+                try:
+                    await self.submit_decision(approval_id, decision, notes, bypass_status_check=True)
+                    await self.approval_notion.mark_approval_processed(approval_id)
+                    logger.info("[APPROVAL] Successfully processed and marked %s", approval_id)
+                except Exception as exc:
+                    logger.error("[APPROVAL] Failed to process decision for %s: %s", approval_id, exc)
+        except Exception as exc:
+            logger.error("[APPROVAL] Polling Notion failed: %s", exc)

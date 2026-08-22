@@ -14,6 +14,7 @@ REVIEWER_NOTES_PROPERTY = "Reviewer Notes"
 CREATED_AT_PROPERTY = "Created At"
 DECISION_DATE_PROPERTY = "Decision Date"
 PRIORITY_PROPERTY = "Priority"
+BACKEND_STATUS_PROPERTY = "Backend Status"
 
 
 class ApprovalNotionService:
@@ -27,6 +28,7 @@ class ApprovalNotionService:
             APPROVAL_NAME_PROPERTY: "title",
             DOCUMENT_RELATION_PROPERTY: "relation",
             APPROVAL_DECISION_PROPERTY: "status",
+            BACKEND_STATUS_PROPERTY: "status",
         }
         missing_or_invalid = [
             f"{name} ({property_type})"
@@ -93,15 +95,10 @@ class ApprovalNotionService:
         self._validate_schema(approval_source)
         
         properties_payload: dict[str, Any] = {
-            APPROVAL_NAME_PROPERTY: {
-                "title": [{"text": {"content": f"Approval: {document_name}"}}],
-            },
-            DOCUMENT_RELATION_PROPERTY: {
-                "relation": [{"id": document_id}],
-            },
-            APPROVAL_DECISION_PROPERTY: {
-                "status": {"name": ApprovalDecision.PENDING_DECISION.value},
-            },
+            APPROVAL_NAME_PROPERTY: {"title": [{"text": {"content": f"Approval: {document_name}"}}]},
+            DOCUMENT_RELATION_PROPERTY: {"relation": [{"id": document_id}]},
+            APPROVAL_DECISION_PROPERTY: {"status": {"name": ApprovalDecision.PENDING_DECISION.value}},
+            BACKEND_STATUS_PROPERTY: {"status": {"name": "Pending"}},
         }
         
         schema = approval_source.get("properties", {})
@@ -161,4 +158,40 @@ class ApprovalNotionService:
             properties_payload[DECISION_DATE_PROPERTY] = {"date": {"start": decision_date}}
             
         payload = {"properties": properties_payload}
+        return await self.client._request("PATCH", f"/pages/{approval_id}", json=payload)
+
+    async def get_unprocessed_decisions(self) -> list[dict[str, Any]]:
+        if not self.client.settings.approval_queue_id:
+            raise NotionServiceError("APPROVAL_QUEUE_ID is not configured.")
+            
+        approval_source = await self.client._get_data_source(self.client.settings.approval_queue_id)
+        self._validate_schema(approval_source)
+        
+        response = await self.client._request(
+            "POST",
+            f"/data_sources/{approval_source['id']}/query",
+            json={
+                "filter": {
+                    "and": [
+                        {
+                            "property": APPROVAL_DECISION_PROPERTY,
+                            "status": {"does_not_equal": ApprovalDecision.PENDING_DECISION.value},
+                        },
+                        {
+                            "property": BACKEND_STATUS_PROPERTY,
+                            "status": {"equals": "Pending"},
+                        },
+                    ]
+                },
+            },
+        )
+        
+        return response.get("results", [])
+
+    async def mark_approval_processed(self, approval_id: str) -> dict[str, Any]:
+        payload = {
+            "properties": {
+                BACKEND_STATUS_PROPERTY: {"status": {"name": "Processed"}}
+            }
+        }
         return await self.client._request("PATCH", f"/pages/{approval_id}", json=payload)
