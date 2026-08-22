@@ -31,35 +31,39 @@ async def poll_inbound_emails():
     
     while True:
         try:
-            # Run the blocking IMAP fetch in a separate thread so it doesn't freeze FastAPI
             pdfs = await asyncio.to_thread(imap_service.fetch_unread_pdfs)
             for pdf in pdfs:
-                sender = pdf["sender"]
-                filename = pdf["filename"]
-                content = pdf["content"]
-                file_hash = calculate_file_hash(content)
-                
-                logger.info(f"[IMAP] Found new document from {sender}: {filename}")
-                
-                try:
-                    email_service.send_message(sender, "Document Received", "⏳ Your document has been received!\nProcessing via AI and syncing to Notion...")
-                except Exception as e:
-                    logger.warning(f"Failed to send email ack to {sender}: {e}")
+                async def _handle_pdf(pdf_dict=pdf):
+                    sender = pdf_dict["sender"]
+                    filename = pdf_dict["filename"]
+                    content = pdf_dict["content"]
+                    file_hash = calculate_file_hash(content)
                     
-                try:
-                    await document_service.process_unique_document(content, filename, file_hash, sender=sender)
-                    email_service.send_message(
-                        sender, 
-                        "Document Processed", 
-                        "✅ Your document has been successfully processed and added to the Notion processing queue."
-                    )
-                except Exception as e:
-                    logger.error(f"[IMAP] processing failed for {filename}: {e}")
-                    email_service.send_message(
-                        sender, 
-                        "Document Processing Failed", 
-                        "⚠️ Oops! Something went wrong while processing your document. Our team has been notified."
-                    )
+                    logger.info(f"[IMAP] Found new document from {sender}: {filename}")
+                    
+                    try:
+                        await asyncio.to_thread(email_service.send_message, sender, "Document Received", "⏳ Your document has been received!\nProcessing via AI and syncing to Notion...")
+                    except Exception as e:
+                        logger.warning(f"Failed to send email ack to {sender}: {e}")
+                        
+                    try:
+                        await document_service.process_unique_document(content, filename, file_hash, sender=sender)
+                        await asyncio.to_thread(
+                            email_service.send_message,
+                            sender, 
+                            "Document Processed", 
+                            "✅ Your document has been successfully processed and added to the Notion processing queue."
+                        )
+                    except Exception as e:
+                        logger.error(f"[IMAP] processing failed for {filename}: {e}")
+                        await asyncio.to_thread(
+                            email_service.send_message,
+                            sender, 
+                            "Document Processing Failed", 
+                            "⚠️ Oops! Something went wrong while processing your document. Our team has been notified."
+                        )
+                
+                asyncio.create_task(_handle_pdf())
         except Exception as e:
             logger.error("IMAP Polling error: %s", e)
             
