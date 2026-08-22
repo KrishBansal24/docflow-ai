@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 APPROVAL_NAME_PROPERTY = "Approval Name"
 DOCUMENT_RELATION_PROPERTY = "Document"
-APPROVAL_DECISION_PROPERTY = "Approval Decision"
+APPROVAL_DECISION_PROPERTY = "Approval Status"
 REASON_PROPERTY = "Reason for Review"
 REVIEWER_NOTES_PROPERTY = "Reviewer Notes"
 CREATED_AT_PROPERTY = "Created At"
