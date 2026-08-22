@@ -57,6 +57,23 @@ class ApprovalService:
                 sender=sender,
             )
             logger.info("[APPROVAL] Approval queue entry created: %s", new_approval["id"])
+            
+            # Send Approval Request to Department Person
+            try:
+                routing_map = await self.directory_notion.get_department_routing()
+                dept = suggested_recipient
+                if dept and dept in routing_map:
+                    emails = routing_map[dept]["emails"]
+                    whatsapp = routing_map[dept]["whatsapp"]
+                    
+                    for wa in whatsapp:
+                        asyncio.create_task(self.whatsapp_service.send_message(wa, f"Action Required: {document_name} needs review.", dept))
+                    if emails:
+                        emails_str = ", ".join(emails)
+                        asyncio.create_task(asyncio.to_thread(self.email_service.send_message, emails_str, "Action Required: Document Approval", f"A new document '{document_name}' has been assigned to your department ({dept}) for review.\n\nPlease review it in the Notion Approval Queue."))
+            except Exception as e:
+                logger.warning("[APPROVAL] Failed to send initial approval request notifications: %s", e)
+                
             return {"id": new_approval["id"], "status": ApprovalDecision.PENDING_DECISION.value}
 
         except NotionServiceError as exc:
@@ -163,23 +180,19 @@ class ApprovalService:
                 recipient_whatsapps = set()
                 settings = self.email_service.settings
                 
-                for dept in departments:
-                    if dept in routing_map:
-                        recipient_emails.update(routing_map[dept]["emails"])
-                        recipient_whatsapps.update(routing_map[dept]["whatsapp"])
+                # Find the Original Sender to notify them of the final decision
+                sender_prop = doc_props.get("Sender", {}).get("rich_text", [])
+                original_sender = "".join(t.get("plain_text", "") for t in sender_prop) if sender_prop else None
+                
+                if original_sender:
+                    if "@" in original_sender:
+                        recipient_emails.add(original_sender)
+                    elif any(char.isdigit() for char in original_sender):
+                        if not original_sender.startswith("whatsapp:"):
+                            original_sender = f"whatsapp:{original_sender}"
+                        recipient_whatsapps.add(original_sender)
                         
-                if not recipient_emails and not recipient_whatsapps:
-                    recipient_prop = doc_props.get("Suggested Recipient", {}).get("rich_text", [])
-                    if suggested := "".join(t.get("plain_text", "") for t in recipient_prop):
-                        if "@" in suggested:
-                            recipient_emails.add(suggested)
-                        elif any(char.isdigit() for char in suggested):
-                            if not suggested.startswith("whatsapp:"):
-                                suggested = f"whatsapp:{suggested}"
-                            recipient_whatsapps.add(suggested)
-                        else:
-                            logger.info("[APPROVAL] Suggested Recipient '%s' is neither email nor WhatsApp. Falling back to defaults.", suggested)
-                        
+                # Fallback to defaults if no sender is found (for testing)
                 if not recipient_emails and not recipient_whatsapps:
                     if settings.smtp_from_email:
                         recipient_emails.add(settings.smtp_from_email)

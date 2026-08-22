@@ -16,19 +16,31 @@ class IMAPService:
         # Default to Gmail IMAP if SMTP is Gmail, otherwise assume the user will configure IMAP later.
         # Since this is an MVP for Gmail, we default to imap.gmail.com
         self.imap_host = "imap.gmail.com"
+        self._mail: imaplib.IMAP4_SSL | None = None
         
     def _is_configured(self) -> bool:
         return bool(self.settings.smtp_username and self.settings.smtp_password)
 
-    def _connect(self) -> imaplib.IMAP4_SSL:
+    def _get_connection(self) -> imaplib.IMAP4_SSL:
         if not self._is_configured():
             raise IMAPServiceError("IMAP credentials not configured. Please set SMTP_USERNAME and SMTP_PASSWORD.")
+            
+        if self._mail:
+            try:
+                status, _ = self._mail.noop()
+                if status == "OK":
+                    return self._mail
+            except Exception:
+                self._mail = None
         
         try:
             mail = imaplib.IMAP4_SSL(self.imap_host)
             mail.login(self.settings.smtp_username, self.settings.smtp_password) # type: ignore
+            mail.select("inbox")
+            self._mail = mail
             return mail
         except Exception as exc:
+            self._mail = None
             raise IMAPServiceError(f"Failed to connect to IMAP server: {exc}") from exc
 
     def extract_sender_email(self, from_header: str) -> str:
@@ -48,14 +60,12 @@ class IMAPService:
 
         results = []
         try:
-            mail = self._connect()
-            mail.select("inbox")
+            mail = self._get_connection()
 
             # Only fetch emails explicitly addressed to the +docflow alias
             # The search string MUST have explicit literal quotes around it to be parsed correctly by IMAP
             status, messages = mail.search(None, "UNSEEN", "TO", '"+docflow"')
             if status != "OK" or not messages[0]:
-                mail.logout()
                 return results
                 
             for num in messages[0].split():
@@ -94,8 +104,8 @@ class IMAPService:
                         # Actually, let's mark it as read regardless so we don't get stuck in a loop parsing the same junk email.
                         mail.store(num, "+FLAGS", "\\Seen")
 
-            mail.logout()
             return results
         except Exception as exc:
+            self._mail = None # Reset connection on error
             logger.error(f"[IMAP] Polling error: {exc}")
             return results
