@@ -5,7 +5,9 @@ from models.approval import ApprovalDecision
 from models.workflow import DecisionStatus
 from services.notion import ApprovalNotionService, DocumentNotionService, RunLogNotionService
 from services.notion.client import NotionServiceError
+from services.notion.directory import DirectoryNotionService
 from services.email_service import EmailService, EmailServiceError
+from services.whatsapp_service import WhatsAppService, WhatsAppServiceError
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +24,9 @@ class ApprovalService:
         self.approval_notion = ApprovalNotionService()
         self.document_notion = DocumentNotionService()
         self.run_log_notion = RunLogNotionService()
+        self.directory_notion = DirectoryNotionService()
         self.email_service = EmailService()
+        self.whatsapp_service = WhatsAppService()
 
     async def queue_document_for_review(
         self, document_id: str, document_name: str, reason: str, priority: str | None = None
@@ -140,21 +144,18 @@ class ApprovalService:
                 departments = [d.get("name") for d in department_prop if d.get("name")]
                 
                 recipient_emails = set()
+                recipient_whatsapps = set()
                 settings = self.email_service.settings
                 
-                dept_map = {
-                    "Finance": settings.email_finance,
-                    "IT": settings.email_it,
-                    "Legal": settings.email_legal,
-                    "HR": settings.email_hr,
-                    "Operations": settings.email_operations,
-                }
+                # Fetch routing rules from Notion dynamically
+                routing_map = await self.directory_notion.get_department_routing()
                 
                 for dept in departments:
-                    if email := dept_map.get(dept):
-                        recipient_emails.add(email)
+                    if dept in routing_map:
+                        recipient_emails.update(routing_map[dept]["emails"])
+                        recipient_whatsapps.update(routing_map[dept]["whatsapp"])
                         
-                if not recipient_emails:
+                if not recipient_emails and not recipient_whatsapps:
                     recipient_prop = doc_props.get("Suggested Recipient", {}).get("rich_text", [])
                     if suggested := "".join(t.get("plain_text", "") for t in recipient_prop):
                         recipient_emails.add(suggested)
@@ -168,25 +169,32 @@ class ApprovalService:
                         recipient_emails.add("admin@example.com")
                 
                 recipients_str = ", ".join(recipient_emails)
+                whatsapp_str = ", ".join(recipient_whatsapps)
                 
                 if decision == ApprovalDecision.APPROVED.value:
-                    self.email_service.send_approval_notification(recipients_str, doc_title, notes)
+                    if recipients_str:
+                        self.email_service.send_approval_notification(recipients_str, doc_title, notes)
+                    for wa in recipient_whatsapps:
+                        await self.whatsapp_service.send_approval_notification(wa, doc_title, notes)
                     final_decision_status = DecisionStatus.ACTION_COMPLETED.value
                 elif decision == ApprovalDecision.NEEDS_CORRECTION.value:
-                    self.email_service.send_correction_notification(recipients_str, doc_title, notes)
+                    if recipients_str:
+                        self.email_service.send_correction_notification(recipients_str, doc_title, notes)
+                    for wa in recipient_whatsapps:
+                        await self.whatsapp_service.send_correction_notification(wa, doc_title, notes)
                     final_decision_status = DecisionStatus.ACTION_COMPLETED.value
                 else:
-                    # For REJECTED, maybe we just don't send an email, or we do, but let's stick to the spec.
+                    # For REJECTED
                     final_decision_status = DecisionStatus.DECISION_TAKEN.value
                 
                 if final_decision_status == DecisionStatus.ACTION_COMPLETED.value:
-                    # Update decision status to ACTION_COMPLETED now that email is sent
+                    # Update decision status to ACTION_COMPLETED now that notifications are sent
                     await self.document_notion.update_decision_status_only(document_id, final_decision_status)
-                    await self.run_log_notion.create_run_log_entry("Action Completed", "Success", f"Sent email to {recipients_str}", document_id, event_type="Workflow")
+                    await self.run_log_notion.create_run_log_entry("Action Completed", "Success", f"Sent notifications to: emails=[{recipients_str}] whatsapp=[{whatsapp_str}]", document_id, event_type="Workflow")
                     
             except Exception as e:
-                logger.error("[APPROVAL] Failed to send email for %s: %s", approval_id, e)
-                await self.run_log_notion.create_run_log_entry("Action Completed", "Failed", f"Failed to send email: {e}", document_id, event_type="Workflow")
+                logger.error("[APPROVAL] Failed to send notifications for %s: %s", approval_id, e)
+                await self.run_log_notion.create_run_log_entry("Action Completed", "Failed", f"Failed to send notifications: {e}", document_id, event_type="Workflow")
                 # We won't block the API response for an email failure, but in production we'd queue it.
 
             await self.run_log_notion.create_run_log_entry("Human Decision", "Success", f"Reviewer decided: {decision}", document_id, event_type="Workflow")

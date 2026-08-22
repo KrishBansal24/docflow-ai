@@ -27,13 +27,13 @@ class Settings(BaseModel):
         ge=1,
     )
     
-    # Department Emails
-    email_finance: str | None = os.getenv("EMAIL_FINANCE")
-    email_it: str | None = os.getenv("EMAIL_IT")
-    email_legal: str | None = os.getenv("EMAIL_LEGAL")
-    email_hr: str | None = os.getenv("EMAIL_HR")
-    email_operations: str | None = os.getenv("EMAIL_OPERATIONS")
-    email_default: str | None = os.getenv("EMAIL_DEFAULT", smtp_from_email)
+    # Notion Routing Directory
+    routing_directory_id: str | None = os.getenv("ROUTING_DIRECTORY_ID")
+    
+    # Twilio / WhatsApp Settings
+    twilio_account_sid: str | None = os.getenv("TWILIO_ACCOUNT_SID")
+    twilio_auth_token: str | None = os.getenv("TWILIO_AUTH_TOKEN")
+    twilio_whatsapp_number: str | None = os.getenv("TWILIO_WHATSAPP_NUMBER")
     
     # Phase 4 AI Settings
     ai_provider: str = os.getenv("AI_PROVIDER", "gemini")
@@ -64,6 +64,7 @@ class Settings(BaseModel):
             "DOCUMENT_INBOX_ID": self.document_inbox_id,
             "APPROVAL_QUEUE_ID": self.approval_queue_id,
             "RUN_LOG_ID": self.run_log_id,
+            "ROUTING_DIRECTORY_ID": self.routing_directory_id,
         }
         return [name for name, value in values.items() if not value]
         
