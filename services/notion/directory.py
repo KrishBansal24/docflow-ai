@@ -41,8 +41,8 @@ class DirectoryNotionService:
             for page in results:
                 props = page.get("properties", {})
                 
-                # Extract Department (Title property)
-                dept_prop = props.get("Department", {}).get("title", [])
+                # Extract Department (Title property - can be named anything)
+                dept_prop = next((v.get("title", []) for k, v in props.items() if v.get("type") == "title"), [])
                 department = "".join(t.get("plain_text", "") for t in dept_prop).strip()
                 
                 if not department:
