@@ -106,7 +106,7 @@ class ApprovalService:
                     date_obj = props.get(prop_name, {}).get("date")
                     return date_obj.get("start") if date_obj else None
                 
-                status_obj = props.get("Approval Status", {}).get("status")
+                status_obj = props.get("Approval Decision", {}).get("status")
                 status = status_obj.get("name") if isinstance(status_obj, dict) else ""
                 
                 approvals.append({
@@ -132,7 +132,7 @@ class ApprovalService:
                     raise ApprovalServiceError(f"Approval not found: {exc}", status_code=404) from exc
                     
                 props = page.get("properties", {})
-                current_status = props.get("Approval Status", {}).get("status", {}).get("name")
+                current_status = props.get("Approval Decision", {}).get("status", {}).get("name")
                 
                 if not bypass_status_check and current_status != ApprovalDecision.PENDING_DECISION.value:
                     raise ApprovalServiceError(f"Cannot submit decision for approval in state: {current_status}", status_code=400)
@@ -243,7 +243,7 @@ class ApprovalService:
                 approval_id = approval["id"]
                 props = approval.get("properties", {})
                 
-                decision_obj = props.get("Approval Status", {}).get("status", {})
+                decision_obj = props.get("Approval Decision", {}).get("status", {})
                 decision = decision_obj.get("name") if decision_obj else None
                 
                 notes_obj = props.get("Reviewer Notes", {}).get("rich_text", [])
