@@ -43,10 +43,11 @@ class EmailService:
             logger.error(f"Failed to send email to {to_email}: {exc}")
             raise EmailServiceError(f"Email dispatch failed: {exc}") from exc
 
-    def send_approval_notification(self, recipient_email: str, document_name: str, approval_notes: str | None) -> None:
+    def send_approval_notification(self, recipient_email: str, document_name: str, approval_notes: str | None, department: str | None = None) -> None:
         """Send an email when a document is successfully approved."""
+        dept_str = department if department else "the respective department"
         subject = f"Document Approved: {document_name}"
-        content = f"Hello,\n\nThe document '{document_name}' has been approved and is ready for payment/processing.\n\n"
+        content = f"Hello,\n\nThe document '{document_name}' has been approved and sent to {dept_str}.\n\n"
         if approval_notes:
             content += f"Reviewer Notes:\n{approval_notes}\n\n"
         content += "Thank you,\nDocFlow AI Workflow"
