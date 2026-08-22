@@ -16,7 +16,7 @@ async def process_whatsapp_document_bg(media_url: str, sender: str) -> None:
     """Background task to download media from Twilio and process it."""
     try:
         # 1. Download media from Twilio
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
             auth = (settings.twilio_account_sid, settings.twilio_auth_token) # type: ignore
             response = await client.get(media_url, auth=auth)
             
